@@ -1,6 +1,6 @@
 # CYD Victron Display: Build Spec
 
-**Status:** v1 in progress (checklist items 1-4 and 12 built)
+**Status:** v1 in progress (checklist items 1-4, 6 and 12 built)
 **Owner:** Sabrina
 **Last updated:** 2026-11-22
 
@@ -31,7 +31,7 @@ A small wall display in the RV that shows the Victron system status I normally c
 * MQTT client with TLS support (cloud mode needs TLS on port 8883)
 * Settings stored in NVS (Preferences)
 * No secrets in source, in `platformio.ini`, or in git
-* MQTT: PubSubClient 2.8 (1 KB buffer). Networking runs in its own FreeRTOS task on core 0; LVGL stays on core 1 and reads status through a mutex.
+* MQTT: PubSubClient 2.8 (1 KB buffer), over WiFiClient locally and WiFiClientSecure for cloud. Networking runs in its own FreeRTOS task on core 0; LVGL stays on core 1 and reads status through a mutex.
 * Envs: `cyd_ili9341` (default), `cyd_st7789`, `wokwi` (simulator, no touch). Partition table `huge_app.csv` (3 MB app, no OTA).
 * NVS namespaces: `settings` (keys `lowsoc`, `snooze`, `bright`, `src`, `lastac`), `touch` (calibration `m` + version `v`), `net` (setup values: `hs_ssid`, `hs_pass`, `mq_host`, `mq_port`, `mq_user`, `gx_pass`, `wf_ssid`, `wf_pass`, `portal`, `vrm_user`, `vrm_token`, plus the one-shot `setup` flag set by Run setup). The VRM token is stored bare; `Token ` is added when connecting.
 
@@ -62,6 +62,8 @@ Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance 
 * Broker: `mqttN.victronenergy.com`, port 8883, TLS
 * Work out `N` from the portal ID: sum the ASCII codes of the lowercase portal ID characters, then take `% 128`
 * TLS: verify with the Victron CA certificate (`venus-ca.crt` from the victronenergy/dbus-flashmq or dbus-mqtt repo), stored in the firmware. Never turn off certificate checks.
+  * In `include/venus_ca.h`: "CCGX Certificate Authority", valid to 2114, SHA-256 `94:8B:99:B3:…:11:DF:50:B0`. Both repos had identical copies on 2026-11-22, and `mqtt0` and `mqtt97.victronenergy.com` verified against it (`*.victronenergy.com`, signed directly by this CA).
+  * The ESP32 TLS library checks the chain, signature and hostname but not the dates (`MBEDTLS_HAVE_TIME_DATE` is off), so no clock sync is needed.
 * Username: VRM email. Password: `Token <access token>`
 * The token should come from a separate read only VRM user that only has access to this installation. Note this on the setup page.
 * If the broker rejects the login, show "VRM token rejected" in the status. Don't just show blank screens.
@@ -69,8 +71,8 @@ Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance 
 ### 5.3 Connection logic
 
 1. On boot, try local mode (scan for the hotspot SSID, try to connect for up to about 15s)
-2. If that fails, try cloud mode
-3. While in cloud mode, scan for the hotspot every 2 minutes. If it's found, switch to local.
+2. If that fails, try cloud mode. (Built: each connection attempt scans once, uses the hotspot if it's in range, otherwise the trailer WiFi. Losing the connection starts a new attempt.)
+3. While in cloud mode, scan for the hotspot every 2 minutes. If it's found, switch to local. (Not built yet: item 7.)
 4. If neither works, show the last known values greyed out with a "No connection" status, and keep retrying
 5. Show the current source (Local or Cloud) on the Settings screen Data source row
 
@@ -230,7 +232,7 @@ All settings saved in NVS.
 - [x] Setup portal with QR codes (confirmed on the device: QR scan, captive page, save and restart, rerun shows Saved, Cancel)
 - [x] Local MQTT: connect, portal ID discovery, keepalive (still to check at the trailer: join, connect, portal ID, paths seen, keepalive every 30s)
 - [ ] Topic paths verified against the live system (update 5.5)
-- [ ] Cloud MQTT: broker index, TLS, token login, error status
+- [x] Cloud MQTT: broker index, TLS, token login, error status (still to check on the device; can be tested at home by entering home WiFi as trailer WiFi)
 - [ ] Local first with cloud fallback, and switching back to local
 - [ ] Overview screen, including Shore/Generator last used
 - [ ] Battery, Solar, AC, Alarms, Settings screens
@@ -252,4 +254,5 @@ All settings saved in NVS.
 | 2026-11-21 | Items 1-2 fully confirmed on the device: touch calibration and demo screen settings survive a power cycle. |
 | 2026-11-22 | Item 4 built: local MQTT (`src/mqtt_local.cpp`). Scans for and joins the hotspot (15s), connects with optional GX username/password, finds the portal ID (discovery first, setup ID fallback), subscribes to the 5.5 paths plus `full_publish_completed`, keepalive as above. A single publish function refuses anything not starting with `R/`. Serial log prints the first value seen per 5.5 path and lists missing paths after each full publish, to help with item 5; portal IDs are masked in logs. Status shows on the demo screen. Added the optional GX username (`mq_user`) to setup. Updated 5.1 and 5.4 from the dbus-flashmq README. |
 | 2026-11-22 | Item 12 built: snooze (`src/snooze.cpp`). Logo now flashes for 1s instead of 3s before the backlight turns off. The logo is drawn by LVGL from flash on the top layer, and also catches the waking tap so nothing underneath is pressed. Uses LVGL's inactivity timer and the Snooze setting, so changes take effect immediately. `snooze_wake()` is ready for alarms (item 13). Flash use 48%. |
+| 2026-11-22 | Item 6 built: cloud MQTT. `src/mqtt_local.*` became `src/mqtt_link.*`, one task handling both modes with the same subscriptions, keepalive and logging. Cloud: broker `mqttN.victronenergy.com:8883` from the portal ID, TLS verified with the Victron CA (`include/venus_ca.h`), login VRM email + `Token <token>`, "Cloud: VRM token rejected" on MQTT refusal (4/5), TLS errors logged. Email and token masked in logs. Interim local/cloud choice per attempt (see 5.3); switching back while on cloud is item 7. Flash use 51%. |
 | 2026-11-22 | Added OTA updates from GitHub Releases, with on-screen approval and signed firmware, to Later. Planned for when Dad's unit is built. |

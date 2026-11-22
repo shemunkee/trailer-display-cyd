@@ -4,7 +4,7 @@
 
 #include "board.h"
 #include "display.h"
-#include "mqtt_local.h"
+#include "mqtt_link.h"
 #include "net_config.h"
 #include "settings.h"
 #include "theme.h"
@@ -74,7 +74,7 @@ static void onTimer(lv_timer_t*) {
 
 static void onLinkTimer(lv_timer_t*) {
   char buf[64];
-  mqtt_local_status_text(buf, sizeof(buf));
+  mqtt_link_status_text(buf, sizeof(buf));
   lv_label_set_text(linkLabel, buf);
 }
 
@@ -127,7 +127,7 @@ void demo_screen_create() {
   lv_obj_set_pos(touchLabel, 0, 16);
   lv_obj_t* setupBtn = ui_button(tc, "Run setup", 88, 10, 72, 24);
   lv_obj_add_event_cb(setupBtn, [](lv_event_t*) { net_config_request_setup(); }, LV_EVENT_CLICKED, nullptr);
-  // Local MQTT status, two lines at most
+  // Data link status (local or cloud), two lines at most
   linkLabel = ui_text(tc, "", &lv_font_montserrat_10, MUTED);
   lv_obj_set_width(linkLabel, LV_PCT(100));
   lv_obj_set_pos(linkLabel, 0, 40);

@@ -1,10 +1,12 @@
-#include "mqtt_local.h"
+#include "mqtt_link.h"
 
 #include <Arduino.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 
 #include "net_config.h"
+#include "venus_ca.h"
 
 static constexpr uint32_t JOIN_TIMEOUT_MS = 15000;    // SPEC 5.3
 static constexpr uint32_t DISCOVERY_MS = 10000;
@@ -12,6 +14,8 @@ static constexpr uint32_t KEEPALIVE_MS = 30000;       // broker timeout is 60 s
 static constexpr uint32_t RETRY_MIN_MS = 5000;
 static constexpr uint32_t RETRY_MAX_MS = 60000;
 static constexpr uint32_t UNSEEN_REPORT_MS = 60000;
+static constexpr uint16_t CLOUD_PORT = 8883;
+static constexpr unsigned long TLS_HANDSHAKE_S = 15;
 
 // SPEC 5.5 paths, relative to N/<portalId>/. Unverified until checklist item 5.
 static const char* const PATHS[] = {
@@ -43,26 +47,30 @@ static const char* const PATHS[] = {
 static constexpr int PATH_COUNT = sizeof(PATHS) / sizeof(PATHS[0]);
 
 static NetConfig cfg;
-static WiFiClient net;
-static PubSubClient mqtt(net);
+static WiFiClient plainNet;
+static WiFiClientSecure tlsNet;
+static PubSubClient mqtt;
 static SemaphoreHandle_t lock;
 static LinkStatus status;
 static bool seen[PATH_COUNT];
 
+static LinkMode mode = LinkMode::None;
 static String portalId;     // the one in use this session
 static String discoveredId;
+static String cloudHost;
 static uint32_t lastKeepalive = 0, lastUnseenReport = 0;
 
 // ---------- status, shared with the UI task ----------
 
 static void setState(LinkState s, int rc = 0) {
   xSemaphoreTake(lock, portMAX_DELAY);
+  status.mode = mode;
   status.state = s;
   status.mqttRc = rc;
   xSemaphoreGive(lock);
 }
 
-LinkStatus mqtt_local_status() {
+LinkStatus mqtt_link_status() {
   LinkStatus s;
   if (!lock) return s;
   xSemaphoreTake(lock, portMAX_DELAY);
@@ -71,25 +79,30 @@ LinkStatus mqtt_local_status() {
   return s;
 }
 
-void mqtt_local_status_text(char* buf, size_t len) {
-  LinkStatus s = mqtt_local_status();
+void mqtt_link_status_text(char* buf, size_t len) {
+  LinkStatus s = mqtt_link_status();
+  const char* m = s.mode == LinkMode::Cloud ? "Cloud" : "Local";
+  bool cloud = s.mode == LinkMode::Cloud;
   switch (s.state) {
-    case LinkState::Off: snprintf(buf, len, "Local: off"); break;
-    case LinkState::NoHotspot: snprintf(buf, len, "Local: no hotspot saved in setup"); break;
-    case LinkState::Scanning: snprintf(buf, len, "Local: looking for hotspot"); break;
-    case LinkState::HotspotMissing: snprintf(buf, len, "Local: hotspot not in range"); break;
-    case LinkState::Joining: snprintf(buf, len, "Local: joining hotspot"); break;
-    case LinkState::JoinFailed: snprintf(buf, len, "Local: couldn't join hotspot, check password"); break;
-    case LinkState::Connecting: snprintf(buf, len, "Local: connecting to broker"); break;
-    case LinkState::LoginRejected: snprintf(buf, len, "Local: broker rejected GX login"); break;
-    case LinkState::ConnectFailed: snprintf(buf, len, "Local: broker not reachable (%d)", s.mqttRc); break;
-    case LinkState::FindingPortal: snprintf(buf, len, "Local: finding portal ID"); break;
-    case LinkState::NoPortal: snprintf(buf, len, "Local: portal ID not found, add it in setup"); break;
+    case LinkState::Off: snprintf(buf, len, "Data: off"); break;
+    case LinkState::NoNetwork: snprintf(buf, len, "No network saved in setup"); break;
+    case LinkState::Scanning: snprintf(buf, len, "Looking for networks"); break;
+    case LinkState::NetworkMissing: snprintf(buf, len, "No saved network in range"); break;
+    case LinkState::NoCloudConfig: snprintf(buf, len, "Cloud: VRM details missing in setup"); break;
+    case LinkState::Joining: snprintf(buf, len, "%s: joining %s", m, cloud ? "trailer WiFi" : "hotspot"); break;
+    case LinkState::JoinFailed: snprintf(buf, len, "%s: couldn't join WiFi, check password", m); break;
+    case LinkState::Connecting: snprintf(buf, len, "%s: connecting to broker", m); break;
+    case LinkState::LoginRejected:
+      snprintf(buf, len, cloud ? "Cloud: VRM token rejected" : "Local: broker rejected GX login");
+      break;
+    case LinkState::ConnectFailed: snprintf(buf, len, "%s: broker not reachable (%d)", m, s.mqttRc); break;
+    case LinkState::FindingPortal: snprintf(buf, len, "%s: finding portal ID", m); break;
+    case LinkState::NoPortal: snprintf(buf, len, "%s: portal ID not found, add it in setup", m); break;
     case LinkState::Loading:
-      snprintf(buf, len, "Local: loading, %u/%u paths", s.pathsSeen, s.pathsTotal);
+      snprintf(buf, len, "%s: loading, %u/%u paths", m, s.pathsSeen, s.pathsTotal);
       break;
     case LinkState::Live:
-      snprintf(buf, len, "Local: live, %u/%u paths, keepalive %lus ago", s.pathsSeen, s.pathsTotal,
+      snprintf(buf, len, "%s: live, %u/%u paths, keepalive %lus ago", m, s.pathsSeen, s.pathsTotal,
                (unsigned long)((millis() - s.lastKeepaliveMs) / 1000));
       break;
   }
@@ -119,6 +132,18 @@ static String masked(const String& topic) {
   if (!portalId.isEmpty()) t.replace(portalId, "<id>");
   if (!discoveredId.isEmpty()) t.replace(discoveredId, "<id>");
   return t;
+}
+
+// VRM picks the broker from the portal ID: sum of its lowercase characters mod 128 (SPEC 5.2)
+static String brokerFor(String id) {
+  id.toLowerCase();
+  uint32_t sum = 0;
+  for (unsigned int i = 0; i < id.length(); i++) sum += (uint8_t)id[i];
+  return "mqtt" + String(sum % 128) + ".victronenergy.com";
+}
+
+static bool cloudConfigured() {
+  return !cfg.wifiSsid.isEmpty() && !cfg.portalId.isEmpty() && !cfg.vrmUser.isEmpty() && !cfg.vrmToken.isEmpty();
 }
 
 // Read only (SPEC 5.4, 7): the only publish path, and it refuses anything but R/
@@ -160,7 +185,7 @@ static void onMessage(char* topicRaw, byte* payload, unsigned int len) {
   status.messages++;
   xSemaphoreGive(lock);
 
-  // Discovery: N/<portalId>/system/0/Serial
+  // Discovery (local only): N/<portalId>/system/0/Serial
   if (portalId.isEmpty()) {
     if (topic.startsWith("N/") && topic.endsWith("/system/0/Serial")) {
       discoveredId = topic.substring(2, topic.indexOf('/', 2));
@@ -193,49 +218,85 @@ static void onMessage(char* topicRaw, byte* payload, unsigned int len) {
 
 // ---------- connection steps ----------
 
-static bool joinHotspot() {
+struct ScanResult {
+  bool hotspot, trailer;
+};
+
+static ScanResult scan() {
+  mode = LinkMode::None;
   setState(LinkState::Scanning);
   WiFi.mode(WIFI_STA);
   int n = WiFi.scanNetworks();
-  bool found = false;
-  for (int i = 0; i < n && !found; i++) found = WiFi.SSID(i) == cfg.hotspotSsid;
-  WiFi.scanDelete();
-  if (!found) {
-    Serial.println("Local: hotspot not found in scan");
-    setState(LinkState::HotspotMissing);
-    return false;
+  ScanResult r = {false, false};
+  for (int i = 0; i < n; i++) {
+    String ssid = WiFi.SSID(i);
+    if (!cfg.hotspotSsid.isEmpty() && ssid == cfg.hotspotSsid) r.hotspot = true;
+    if (!cfg.wifiSsid.isEmpty() && ssid == cfg.wifiSsid) r.trailer = true;
   }
+  WiFi.scanDelete();
+  Serial.printf("Scan: hotspot %s, trailer WiFi %s\n", r.hotspot ? "in range" : "not found",
+                r.trailer ? "in range" : "not found");
+  return r;
+}
 
+static bool join(const String& ssid, const String& pass) {
   setState(LinkState::Joining);
-  WiFi.begin(cfg.hotspotSsid.c_str(), cfg.hotspotPass.c_str());
+  WiFi.begin(ssid.c_str(), pass.c_str());
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < JOIN_TIMEOUT_MS) vTaskDelay(pdMS_TO_TICKS(100));
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Local: couldn't join hotspot");
+    Serial.printf("%s: couldn't join WiFi\n", mode == LinkMode::Cloud ? "Cloud" : "Local");
     WiFi.disconnect(true);
     setState(LinkState::JoinFailed);
     return false;
   }
-  Serial.printf("Local: joined hotspot, IP %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("%s: joined WiFi, IP %s\n", mode == LinkMode::Cloud ? "Cloud" : "Local",
+                WiFi.localIP().toString().c_str());
   return true;
 }
 
-static bool connectBroker() {
-  setState(LinkState::Connecting);
-  mqtt.setServer(cfg.mqttHost.c_str(), cfg.mqttPort);
-  String id = "cyd-victron-" + String((uint32_t)ESP.getEfuseMac(), HEX);
-  bool ok;
-  if (cfg.gxPass.isEmpty()) ok = mqtt.connect(id.c_str());
-  else ok = mqtt.connect(id.c_str(), cfg.mqttUser.c_str(), cfg.gxPass.c_str());
-  if (ok) {
-    Serial.printf("Local: broker %s:%u connected\n", cfg.mqttHost.c_str(), cfg.mqttPort);
-    return true;
-  }
+static String clientId() { return "cyd-victron-" + String((uint32_t)ESP.getEfuseMac(), HEX); }
+
+static void connectFailed(const char* label, bool tls) {
   int rc = mqtt.state();
-  Serial.printf("Local: broker connect failed, state %d\n", rc);
+  Serial.printf("%s: broker connect failed, state %d\n", label, rc);
+  if (tls) {
+    char err[100];
+    if (tlsNet.lastError(err, sizeof(err))) Serial.printf("%s: TLS error: %s\n", label, err);
+  }
   // 4 = bad username/password, 5 = not authorized
   setState(rc == 4 || rc == 5 ? LinkState::LoginRejected : LinkState::ConnectFailed, rc);
-  return false;
+}
+
+static bool connectLocal() {
+  setState(LinkState::Connecting);
+  mqtt.setClient(plainNet);
+  mqtt.setServer(cfg.mqttHost.c_str(), cfg.mqttPort);
+  bool ok = cfg.gxPass.isEmpty() ? mqtt.connect(clientId().c_str())
+                                 : mqtt.connect(clientId().c_str(), cfg.mqttUser.c_str(), cfg.gxPass.c_str());
+  if (!ok) {
+    connectFailed("Local", false);
+    return false;
+  }
+  Serial.printf("Local: broker %s:%u connected\n", cfg.mqttHost.c_str(), cfg.mqttPort);
+  return true;
+}
+
+// TLS verified against the Victron CA, always (SPEC 5.2, 7)
+static bool connectCloud() {
+  setState(LinkState::Connecting);
+  cloudHost = brokerFor(cfg.portalId);
+  mqtt.setClient(tlsNet);
+  mqtt.setServer(cloudHost.c_str(), CLOUD_PORT);
+  String password = "Token " + cfg.vrmToken;
+  Serial.printf("Cloud: connecting to %s:%u as %s, Token %s\n", cloudHost.c_str(), CLOUD_PORT,
+                mask_secret(cfg.vrmUser).c_str(), mask_secret(cfg.vrmToken).c_str());
+  if (!mqtt.connect(clientId().c_str(), cfg.vrmUser.c_str(), password.c_str())) {
+    connectFailed("Cloud", true);
+    return false;
+  }
+  Serial.println("Cloud: broker connected, certificate verified");
+  return true;
 }
 
 // Prefer the ID the Cerbo announces; fall back to the one saved in setup
@@ -268,6 +329,35 @@ static bool findPortal() {
   return true;
 }
 
+// One attempt: hotspot first (SPEC 5.3 steps 1-2), else trailer WiFi + VRM.
+// Rescanning while on cloud to switch back is checklist item 7.
+static bool connectOnce() {
+  ScanResult r = scan();
+  if (r.hotspot) {
+    mode = LinkMode::Local;
+    if (join(cfg.hotspotSsid, cfg.hotspotPass) && connectLocal() && findPortal()) return true;
+    mqtt.disconnect();
+    WiFi.disconnect(true);
+  }
+  if (r.trailer) {
+    mode = LinkMode::Cloud;
+    if (!cloudConfigured()) {
+      Serial.println("Cloud: trailer WiFi in range but VRM portal ID, email or token missing");
+      setState(LinkState::NoCloudConfig);
+      return false;
+    }
+    if (join(cfg.wifiSsid, cfg.wifiPass) && connectCloud()) {
+      portalId = cfg.portalId;
+      return true;
+    }
+    mqtt.disconnect();
+    WiFi.disconnect(true);
+    return false;
+  }
+  if (!r.hotspot) setState(LinkState::NetworkMissing);
+  return false;
+}
+
 static void subscribeAll() {
   memset(seen, 0, sizeof(seen));
   xSemaphoreTake(lock, portMAX_DELAY);
@@ -279,7 +369,8 @@ static void subscribeAll() {
   mqtt.subscribe((base + "full_publish_completed").c_str());
   setState(LinkState::Loading);
   sendKeepalive(true);
-  Serial.printf("Local: subscribed to %d paths, keepalive sent\n", PATH_COUNT);
+  Serial.printf("%s: subscribed to %d paths, keepalive sent\n", mode == LinkMode::Cloud ? "Cloud" : "Local",
+                PATH_COUNT);
 }
 
 // ---------- task ----------
@@ -287,9 +378,7 @@ static void subscribeAll() {
 static void netTask(void*) {
   uint32_t retry = RETRY_MIN_MS;
   for (;;) {
-    bool ok = (WiFi.status() == WL_CONNECTED || joinHotspot()) && connectBroker() && findPortal();
-    if (!ok) {
-      mqtt.disconnect();
+    if (!connectOnce()) {
       vTaskDelay(pdMS_TO_TICKS(retry));
       retry = min(retry * 2, RETRY_MAX_MS);
       continue;
@@ -303,21 +392,25 @@ static void netTask(void*) {
       if (millis() - lastUnseenReport > UNSEEN_REPORT_MS) reportUnseen(false);
       vTaskDelay(pdMS_TO_TICKS(2));
     }
-    Serial.println("Local: connection lost");
+    Serial.printf("%s: connection lost\n", mode == LinkMode::Cloud ? "Cloud" : "Local");
     mqtt.disconnect();
+    WiFi.disconnect(true);
   }
 }
 
-void mqtt_local_begin() {
+void mqtt_link_begin() {
   net_config_load(cfg);
   lock = xSemaphoreCreateMutex();
-  if (cfg.hotspotSsid.isEmpty()) {
-    status.state = LinkState::NoHotspot;
-    Serial.println("Local: no hotspot saved, not starting");
+  if (!net_config_has_network(cfg)) {
+    status.state = LinkState::NoNetwork;
+    Serial.println("Link: no network saved, not starting");
     return;
   }
+  tlsNet.setCACert(VENUS_CA);
+  tlsNet.setHandshakeTimeout(TLS_HANDSHAKE_S);
   mqtt.setBufferSize(1024);
   mqtt.setSocketTimeout(5);
   mqtt.setCallback(onMessage);
-  xTaskCreatePinnedToCore(netTask, "net", 8192, nullptr, 1, nullptr, 0);
+  // TLS needs more stack than plain MQTT
+  xTaskCreatePinnedToCore(netTask, "net", 12288, nullptr, 1, nullptr, 0);
 }
