@@ -212,9 +212,9 @@ All settings saved in NVS.
 
 ## 9. Build checklist
 
-- [x] Project scaffold, display and touch working, touch calibration saved (display and calibration confirmed on the device with `cyd_ili9341`; still to check: calibration isn't asked for again after a power cycle)
-- [x] Settings in NVS (still to check on the device: change a setting on the demo screen, power-cycle, value kept)
-- [x] Setup portal with QR codes (still to check on the device: QR scan, captive page, save and restart, rerun shows Saved, Cancel)
+- [x] Project scaffold, display and touch working, touch calibration saved (confirmed on the device with `cyd_ili9341`, including calibration kept after a power cycle)
+- [x] Settings in NVS (confirmed on the device: setting changed on the demo screen kept after a power cycle)
+- [x] Setup portal with QR codes (confirmed on the device: QR scan, captive page, save and restart, rerun shows Saved, Cancel)
 - [ ] Local MQTT: connect, portal ID discovery, keepalive
 - [ ] Topic paths verified against the live system (update 5.5)
 - [ ] Cloud MQTT: broker index, TLS, token login, error status
@@ -235,3 +235,5 @@ All settings saved in NVS.
 | 2026-11-21 | Items 1-2 built. UI: LVGL 9.2.2 on TFT_eSPI 2.5.43 (own flush callback, 20-line partial buffer, 48 KB LVGL heap, Montserrat 10/12/14/18/40 only). Display driver is a build flag (`cyd_st7789` default, `cyd_ili9341`); pins and touch bus reused from the old victron-cyd project. Partition `huge_app.csv`. Touch calibration: 3-point affine fit plus a 4th check point (max 8 px error), saved in NVS `touch`; runs on first boot or when the screen is held 3 s at power-up; `calibration_run()` is ready for Settings → Recalibrate touch. Settings in NVS `settings`, range-checked on load, written only on change. A temporary demo screen tests both items until the real screens land. |
 | 2026-11-21 | Our board is ILI9341 (confirmed: display works and touch calibration ran with `cyd_ili9341`). Made `cyd_ili9341` the default env; `cyd_st7789` kept for other revisions. |
 | 2026-11-21 | Item 3 built: setup portal. `CYD-Setup` WPA2 network with a fresh 10-character password (hardware RNG, no lookalike characters), captive DNS that sends every lookup and unknown path to the form, LVGL QR codes (`LV_USE_QRCODE`, no extra libraries; Arduino WebServer and DNSServer). Values saved to NVS `net`. Added the setup trigger, prefill and Cancel behavior to 6.9, and the unencrypted NVS note to 7. Shared LVGL helpers moved to `src/ui.cpp`. Flash use is now 43% of the 3 MB app slot, RAM 34%. |
+| 2026-11-21 | Setup portal confirmed on the device (`cyd_ili9341`): QR join, captive page, save and restart with masked log, rerun prefill and Saved/Replace, Cancel. |
+| 2026-11-21 | Items 1-2 fully confirmed on the device: touch calibration and demo screen settings survive a power cycle. |
