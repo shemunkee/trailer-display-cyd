@@ -10,7 +10,7 @@
 #define LV_USE_STDLIB_MALLOC  LV_STDLIB_BUILTIN
 #define LV_USE_STDLIB_STRING  LV_STDLIB_CLIB
 #define LV_USE_STDLIB_SPRINTF LV_STDLIB_CLIB
-#define LV_MEM_SIZE (48U * 1024U)
+#define LV_MEM_SIZE (56U * 1024U)  // five screens built at boot; the boot log prints how much is used. 64 KB overflows static DRAM.
 
 #define LV_USE_OS LV_OS_NONE
 #define LV_DEF_REFR_PERIOD 33
@@ -35,7 +35,8 @@
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_16 0
 #define LV_FONT_MONTSERRAT_18 1
-#define LV_FONT_MONTSERRAT_24 1  // SOC ring (Overview mockup)
+#define LV_FONT_MONTSERRAT_24 1  // SOC ring (Overview), MPPT watts (Solar)
+#define LV_FONT_MONTSERRAT_36 1  // SOC on the Battery screen
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 
 #define LV_USE_THEME_DEFAULT 1

@@ -1,5 +1,9 @@
 #include "ui.h"
 
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+
 #include "theme.h"
 
 using namespace theme;
@@ -35,4 +39,47 @@ lv_obj_t* ui_button(lv_obj_t* parent, const char* label, int x, int y, int w, in
   lv_obj_t* l = ui_text(b, label, &lv_font_montserrat_12, TEXT);
   lv_obj_center(l);
   return b;
+}
+
+void ui_set_text(lv_obj_t* l, const char* s) {
+  if (strcmp(lv_label_get_text(l), s) != 0) lv_label_set_text(l, s);
+}
+
+void ui_set_color(lv_obj_t* l, uint32_t c) {
+  lv_color_t col = lv_color_hex(c);
+  if (!lv_color_eq(lv_obj_get_style_text_color(l, 0), col)) lv_obj_set_style_text_color(l, col, 0);
+}
+
+void ui_fmt_watts(char* buf, size_t len, float w, bool sign) {
+  if (isnan(w)) snprintf(buf, len, "--");
+  else if (fabsf(w) < 999.5f) snprintf(buf, len, sign ? "%+.0f W" : "%.0f W", w);
+  else snprintf(buf, len, sign ? "%+.1f kW" : "%.1f kW", w / 1000.0f);
+}
+
+lv_obj_t* ui_rows(lv_obj_t* parent) {
+  lv_obj_t* c = lv_obj_create(parent);
+  lv_obj_remove_style_all(c);
+  lv_obj_set_width(c, lv_pct(100));
+  lv_obj_set_flex_grow(c, 1);
+  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+  lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+  return c;
+}
+
+lv_obj_t* ui_row(lv_obj_t* column, const char* label, bool last) {
+  lv_obj_t* r = lv_obj_create(column);
+  lv_obj_remove_style_all(r);
+  lv_obj_set_width(r, lv_pct(100));
+  lv_obj_set_flex_grow(r, 1);
+  lv_obj_remove_flag(r, LV_OBJ_FLAG_SCROLLABLE);
+  if (!last) {
+    lv_obj_set_style_border_side(r, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_width(r, 1, 0);
+    lv_obj_set_style_border_color(r, lv_color_hex(DIVIDER), 0);
+  }
+  lv_obj_t* l = ui_text(r, label, &lv_font_montserrat_12, MUTED);
+  lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
+  lv_obj_t* v = ui_text(r, "--", &lv_font_montserrat_14, TEXT);
+  lv_obj_align(v, LV_ALIGN_RIGHT_MID, 0, 0);
+  return v;
 }

@@ -1,10 +1,15 @@
 #include "nav.h"
 
+#include <Arduino.h>
+
+#include "ac_screen.h"
+#include "battery_screen.h"
 #include "board.h"
 #include "nav_icons.h"
 #include "overview_screen.h"
 #include "settings.h"
 #include "settings_screen.h"
+#include "solar_screen.h"
 #include "theme.h"
 #include "ui.h"
 #include "victron_data.h"
@@ -58,7 +63,7 @@ static lv_obj_t* makePage(lv_obj_t* scr) {
   return p;
 }
 
-// Battery, Solar, AC and Alarms come in checklist item 9
+// Alarms comes with checklist item 13
 static void placeholder(lv_obj_t* page, const char* name) {
   lv_obj_t* l = ui_text(page, name, &lv_font_montserrat_14, TEXT);
   lv_obj_align(l, LV_ALIGN_CENTER, 0, -10);
@@ -128,6 +133,9 @@ static void onUpdate(lv_timer_t*) {
   VictronData d;
   victron_data_get(d);
   overview_screen_update(d);
+  battery_screen_update(d);
+  solar_screen_update(d);
+  ac_screen_update(d);
   settings_screen_update();
   // Alarms dot (SPEC 6.11): low SOC for now; device alarms come in item 13
   bool alarm = !isnan(d.soc) && d.soc <= settings_get().lowSocPct;
@@ -144,12 +152,19 @@ void nav_begin() {
 
   for (int i = 0; i < PAGE_COUNT; i++) pages[i] = makePage(scr);
   overview_screen_create(pages[(int)Page::Overview]);
+  battery_screen_create(pages[(int)Page::Battery]);
+  solar_screen_create(pages[(int)Page::Solar]);
+  ac_screen_create(pages[(int)Page::Ac]);
   settings_screen_create(pages[(int)Page::Settings]);
-  static const Page soon[] = {Page::Battery, Page::Solar, Page::Ac, Page::Alarms};
-  for (Page p : soon) placeholder(pages[(int)p], PAGE_NAMES[(int)p]);
+  placeholder(pages[(int)Page::Alarms], PAGE_NAMES[(int)Page::Alarms]);
 
   buildBar(scr);
   nav_show(Page::Overview);
   onUpdate(nullptr);
   lv_timer_create(onUpdate, UPDATE_MS, nullptr);
+
+  lv_mem_monitor_t mon;
+  lv_mem_monitor(&mon);
+  Serial.printf("UI: built, LVGL memory %u%% used (%u of %u bytes free)\n", mon.used_pct,
+                (unsigned)mon.free_size, (unsigned)mon.total_size);
 }

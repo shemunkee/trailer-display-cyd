@@ -38,6 +38,7 @@ static const char* const PATHS[] = {
     "system/0/Ac/Grid/L1/Power",
     "system/0/Ac/Genset/L1/Power",
     "system/0/Ac/Consumption/L1/Power",
+    "vebus/+/Ac/ActiveIn/L1/V",
     "vebus/+/Ac/Out/L1/V",
     "vebus/+/Ac/Out/L1/I",
     "vebus/+/Ac/Out/L1/F",

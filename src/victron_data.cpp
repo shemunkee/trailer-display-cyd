@@ -113,7 +113,8 @@ void victron_data_on_message(const char* path, const uint8_t* payload, unsigned 
       else group = -1;
     }
   } else if (!strcmp(service, "vebus")) {
-    if (!strcmp(rest, "Ac/Out/L1/V")) setNum(data.acOutVolts, v), group = GROUP_AC;
+    if (!strcmp(rest, "Ac/ActiveIn/L1/V")) setNum(data.acInVolts, v), group = GROUP_AC;
+    else if (!strcmp(rest, "Ac/Out/L1/V")) setNum(data.acOutVolts, v), group = GROUP_AC;
     else if (!strcmp(rest, "Ac/Out/L1/I")) setNum(data.acOutAmps, v), group = GROUP_AC;
     else if (!strcmp(rest, "Ac/Out/L1/F")) setNum(data.acOutHz, v), group = GROUP_AC;
     else if (!strcmp(rest, "Ac/ActiveIn/CurrentLimit")) setNum(data.inputLimitAmps, v), group = GROUP_QUATTRO;
@@ -154,3 +155,29 @@ const char* vebus_state_name(int s) {
 }
 
 bool vebus_state_charging(int s) { return s >= 3 && s <= 7; }
+
+// solarcharger/<inst>/State codes
+const char* mppt_state_name(int s) {
+  switch (s) {
+    case 0: return "Off";
+    case 2: return "Fault";
+    case 3: return "Bulk";
+    case 4: return "Absorption";
+    case 5: return "Float";
+    case 6: return "Storage";
+    case 7: return "Equalize";
+    case 245: return "Starting";
+    case 252: return "External";
+    default: return "--";
+  }
+}
+
+bool mppt_name_matches(const MpptData* m, const char* name) {
+  return m && m->instance >= 0 && m->name[0] && strcasestr(m->name, name);
+}
+
+const MpptData* mppt_by_name(const VictronData& d, const char* name) {
+  for (const MpptData& m : d.mppt)
+    if (mppt_name_matches(&m, name)) return &m;
+  return nullptr;
+}

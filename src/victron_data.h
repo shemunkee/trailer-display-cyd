@@ -30,6 +30,7 @@ struct VictronData {
   // AC
   int acSource = -1;  // system/0/Ac/ActiveIn/Source: 1 Grid, 2 Generator, 3 Shore, 240 none
   float gridWatts = NAN, gensetWatts = NAN, loadWatts = NAN;
+  float acInVolts = NAN;
   float acOutVolts = NAN, acOutAmps = NAN, acOutHz = NAN, inputLimitAmps = NAN;
   // Quattro
   int vebusState = -1;
@@ -46,3 +47,8 @@ void victron_data_get(VictronData& out);
 // Helpers for the screens
 const char* vebus_state_name(int state);  // Off, Inverting, Bulk, ...
 bool vebus_state_charging(int state);     // Bulk, Absorption, Float, Storage, Equalize
+const char* mppt_state_name(int state);   // Off, Bulk, Absorption, Float, ...
+
+// The MPPT whose CustomName contains `name` (case-insensitive), or nullptr
+const MpptData* mppt_by_name(const VictronData& d, const char* name);
+bool mppt_name_matches(const MpptData* m, const char* name);

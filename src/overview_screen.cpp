@@ -43,23 +43,6 @@ static Tile makeTile(lv_obj_t* page, int x, int y, const lv_font_t* valueFont) {
   return t;
 }
 
-// Only touch a label when its text changes, so the panel isn't redrawn every tick
-static void setText(lv_obj_t* l, const char* s) {
-  if (strcmp(lv_label_get_text(l), s) != 0) lv_label_set_text(l, s);
-}
-
-static void setColor(lv_obj_t* l, uint32_t c) {
-  lv_color_t col = lv_color_hex(c);
-  if (!lv_color_eq(lv_obj_get_style_text_color(l, 0), col)) lv_obj_set_style_text_color(l, col, 0);
-}
-
-// 640 W, 2.1 kW; "--" when unknown. sign: also show + for positive values
-static void fmtWatts(char* buf, size_t len, float w, bool sign = false) {
-  if (isnan(w)) snprintf(buf, len, "--");
-  else if (fabsf(w) < 999.5f) snprintf(buf, len, sign ? "%+.0f W" : "%.0f W", w);
-  else snprintf(buf, len, sign ? "%+.1f kW" : "%.1f kW", w / 1000.0f);
-}
-
 void overview_screen_create(lv_obj_t* page) {
   acIn = makeTile(page, 0, 0, &lv_font_montserrat_18);
   solar = makeTile(page, 0, TILE_H + GAP, &lv_font_montserrat_18);
@@ -103,21 +86,21 @@ static void updateAcInput(const VictronData& d) {
   if (genLive) settings_set_last_ac(AcSource::Generator);
 
   AcSource shown = genLive ? AcSource::Generator : shoreLive ? AcSource::Shore : settings_get().lastAc;
-  setText(acIn.title, shown == AcSource::Generator ? "GENERATOR" : shown == AcSource::Shore ? "SHORE" : "AC INPUT");
+  ui_set_text(acIn.title, shown == AcSource::Generator ? "GENERATOR" : shown == AcSource::Shore ? "SHORE" : "AC INPUT");
 
   if (shoreLive || genLive) {
-    fmtWatts(buf, sizeof(buf), genLive ? d.gensetWatts : d.gridWatts);
-    setText(acIn.value, buf);
-    setColor(acIn.value, genLive ? GEN : AC);
-    setText(acIn.sub, genLive ? "Running" : "Connected");
+    ui_fmt_watts(buf, sizeof(buf), genLive ? d.gensetWatts : d.gridWatts);
+    ui_set_text(acIn.value, buf);
+    ui_set_color(acIn.value, genLive ? GEN : AC);
+    ui_set_text(acIn.sub, genLive ? "Running" : "Connected");
   } else if (d.acSource < 0) {  // no data yet
-    setText(acIn.value, "--");
-    setColor(acIn.value, MUTED);
-    setText(acIn.sub, "");
+    ui_set_text(acIn.value, "--");
+    ui_set_color(acIn.value, MUTED);
+    ui_set_text(acIn.sub, "");
   } else {  // 240: nothing connected; show the last one used, greyed (SPEC 6.3)
-    setText(acIn.value, "0 W");
-    setColor(acIn.value, MUTED);
-    setText(acIn.sub, shown == AcSource::None ? "Off" : "Off " LV_SYMBOL_BULLET " last used");
+    ui_set_text(acIn.value, "0 W");
+    ui_set_color(acIn.value, MUTED);
+    ui_set_text(acIn.sub, shown == AcSource::None ? "Off" : "Off " LV_SYMBOL_BULLET " last used");
   }
 }
 
@@ -128,62 +111,62 @@ static void updateRing(const VictronData& d) {
   uint32_t color = low ? WARN : charging ? CHARGE : TEXT;
 
   if (isnan(d.soc)) {
-    setText(socLabel, "--");
+    ui_set_text(socLabel, "--");
     lv_arc_set_value(ring, 0);
   } else {
     snprintf(buf, sizeof(buf), "%.0f%%", d.soc);
-    setText(socLabel, buf);
+    ui_set_text(socLabel, buf);
     if (lv_arc_get_value(ring) != (int)(d.soc + 0.5f)) lv_arc_set_value(ring, (int)(d.soc + 0.5f));
   }
   lv_color_t ringColor = lv_color_hex(color);
   if (!lv_color_eq(lv_obj_get_style_arc_color(ring, LV_PART_INDICATOR), ringColor))
     lv_obj_set_style_arc_color(ring, ringColor, LV_PART_INDICATOR);
-  setColor(socLabel, low ? WARN : TEXT);
+  ui_set_color(socLabel, low ? WARN : TEXT);
 
-  fmtWatts(buf, sizeof(buf), d.battWatts, true);
-  setText(powerLabel, isnan(d.battWatts) ? "" : buf);
-  setColor(powerLabel, charging ? CHARGE : MUTED);
-  if (isnan(d.battVolts)) setText(voltsLabel, "");
+  ui_fmt_watts(buf, sizeof(buf), d.battWatts, true);
+  ui_set_text(powerLabel, isnan(d.battWatts) ? "" : buf);
+  ui_set_color(powerLabel, charging ? CHARGE : MUTED);
+  if (isnan(d.battVolts)) ui_set_text(voltsLabel, "");
   else {
     snprintf(buf, sizeof(buf), "%.1f V", d.battVolts);
-    setText(voltsLabel, buf);
+    ui_set_text(voltsLabel, buf);
   }
 }
 
 static void updateSolar(const VictronData& d) {
   char buf[24];
-  fmtWatts(buf, sizeof(buf), d.pvWatts);
-  setText(solar.value, buf);
+  ui_fmt_watts(buf, sizeof(buf), d.pvWatts);
+  ui_set_text(solar.value, buf);
   float kwh = 0;
   bool any = false;
   for (const MpptData& m : d.mppt)
     if (m.instance >= 0 && !isnan(m.yieldTodayKwh)) kwh += m.yieldTodayKwh, any = true;
   if (any) snprintf(buf, sizeof(buf), "%.1f kWh today", kwh);
-  setText(solar.sub, any ? buf : "");
+  ui_set_text(solar.sub, any ? buf : "");
 }
 
 static void updateLoads(const VictronData& d) {
   char buf[24];
-  fmtWatts(buf, sizeof(buf), d.loadWatts);
-  setText(loads.value, buf);
-  if (isnan(d.acOutAmps)) setText(loads.sub, "");
+  ui_fmt_watts(buf, sizeof(buf), d.loadWatts);
+  ui_set_text(loads.value, buf);
+  if (isnan(d.acOutAmps)) ui_set_text(loads.sub, "");
   else {
     snprintf(buf, sizeof(buf), "%.1f A", d.acOutAmps);
-    setText(loads.sub, buf);
+    ui_set_text(loads.sub, buf);
   }
 }
 
 static void updateQuattro(const VictronData& d) {
   char buf[24];
   bool charging = vebus_state_charging(d.vebusState);
-  setText(quattro.value, charging ? "Charging" : vebus_state_name(d.vebusState));
-  setColor(quattro.value, d.vebusState == 2 ? ALARM : TEXT);  // Fault
+  ui_set_text(quattro.value, charging ? "Charging" : vebus_state_name(d.vebusState));
+  ui_set_color(quattro.value, d.vebusState == 2 ? ALARM : TEXT);  // Fault
   bool acLive = d.acSource >= 1 && d.acSource <= 3;
   if (acLive && !isnan(d.inputLimitAmps)) {
     snprintf(buf, sizeof(buf), "%.0f A limit", d.inputLimitAmps);
-    setText(quattro.sub, buf);
+    ui_set_text(quattro.sub, buf);
   } else {
-    setText(quattro.sub, charging ? vebus_state_name(d.vebusState) : "");  // Bulk, Absorption, ...
+    ui_set_text(quattro.sub, charging ? vebus_state_name(d.vebusState) : "");  // Bulk, Absorption, ...
   }
 }
 

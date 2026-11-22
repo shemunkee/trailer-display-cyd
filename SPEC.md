@@ -104,6 +104,7 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 | Shore power | `system/0/Ac/Grid/L1/Power` |
 | Generator power | `system/0/Ac/Genset/L1/Power` |
 | AC loads | `system/0/Ac/Consumption/L1/Power` |
+| AC input voltage | `vebus/<inst>/Ac/ActiveIn/L1/V` |
 | AC out voltage, current, frequency | `vebus/<inst>/Ac/Out/L1/V`, `/I`, `/F` |
 | Shore input limit | `vebus/<inst>/Ac/ActiveIn/CurrentLimit` |
 | Quattro state | `vebus/<inst>/State` (map to Off, Inverting, Charging, Passthru, etc.) |
@@ -137,7 +138,8 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 * No swipes. Taps only (resistive touch).
 * Icons are the mockup's line icons, drawn into 20px alpha bitmaps by `tools/make_icons.py` (`include/nav_icons.h`) and colored at runtime (white active, muted otherwise)
 * Screens are built once and shown or hidden, so switching and waking are instant. Values refresh every 500 ms.
-* Until item 9, Battery, Solar, AC and Alarms open a "Coming soon" page. Until item 13, the Alarms dot only shows low SOC.
+* Until item 13, Alarms opens a "Coming soon" page and the Alarms dot only shows low SOC.
+* LVGL has a 56 KB heap, the most that fits beside everything else in static RAM (64 KB overflows). The boot log prints how much of it the screens use (`UI: built, LVGL memory N% used`).
 
 ### 6.3 Overview
 
@@ -152,13 +154,23 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 
 SOC card on the left (big %, bar, Charging/Discharging), rows on the right: Voltage, Current, Power, Time to go ("Charging" while charging), Consumed Ah.
 
+* SOC is 36px; the bar and SOC follow the Overview ring colors (green charging, amber at or below low SOC). "Idle" at exactly 0 W.
+* Current and power show a sign and turn green while charging. Time to go is shown as `5h 12m`, `99h+` past 100 hours.
+
 ### 6.5 Solar
 
 Total solar at the top. Two cards side by side, Driver and Passenger: watts, PV voltage, state, yield today.
 
+* Cards are matched by CustomName containing "driver" or "passenger" (any case). If a name doesn't match, that card shows the next charger not already shown, titled with its own CustomName, so a renamed MPPT still appears.
+* Total solar is 18px and MPPT watts 24px (the mockup's 20px and 22px aren't built-in sizes). A Fault state shows red.
+
 ### 6.6 AC / Quattro
 
 Two cards: AC input (labelled with the live or last used source: voltage, power, input limit) and AC out (watts, voltage, current, frequency). Quattro state bar below.
+
+* AC input reads "Connected" (blue) or "Running" (orange, generator) when live, "Off" in grey otherwise, with voltage and power greyed while off. Power comes from `Ac/Grid` or `Ac/Genset` as on Overview.
+* AC out watts are the AC loads value, as on Overview
+* The state bar shows the full Quattro state (Bulk, Absorption, Float, Inverting, ...), Fault in red
 
 ### 6.7 Alarms
 
@@ -246,7 +258,7 @@ All settings saved in NVS.
 - [x] Cloud MQTT: broker index, TLS, token login, error status (still to check on the device; can be tested at home by entering home WiFi as trailer WiFi)
 - [x] Local first with cloud fallback, and switching back to local (still to check at the trailer: on cloud, turn the hotspot on and it switches within about 2 minutes)
 - [x] Overview screen, including Shore/Generator last used (still to check on the device with live data)
-- [ ] Battery, Solar, AC, Alarms, Settings screens (Settings built, still to check on the device)
+- [ ] Battery, Solar, AC, Alarms, Settings screens (Battery, Solar, AC and Settings built, still to check on the device; Alarms comes with item 13)
 - [ ] Bottom nav and alarm dot (nav built; the dot shows low SOC only until item 13)
 - [ ] Stale data handling
 - [x] Snooze with logo (still to check on the device)
@@ -270,3 +282,4 @@ All settings saved in NVS.
 | 2026-11-22 | Setup network renamed `Victron_CYD` (was `CYD-Setup`). Its password is no longer new each time: it's generated once per device with the hardware RNG, saved as `net/ap_pass` and reused, so it stays out of source. Erasing flash makes a new one. |
 | 2026-11-22 | Item 7 built: while on cloud, a background scan every 2 minutes looks for the hotspot and switches to local when it's in range. Failed local attempts with the hotspot visible back the rescan off (2, 4, 8, 16, then 30 min max). |
 | 2026-11-22 | Item 8 built, and Settings plus the bottom nav from items 9-10. New data layer (`src/victron_data.*`): the MQTT task parses each 5.5 value into one shared set, with a last-update time per group (battery, solar, AC, Quattro) for item 11; MPPTs are kept by instance and carry their CustomName. Overview, Settings and the nav follow the mockups (details in 6.1-6.3, 6.8). The demo screen is gone; the device boots into Overview. Fonts: Montserrat 24 added for the SOC ring, 40 dropped. Flash use 50%. |
+| 2026-11-22 | Battery, Solar and AC / Quattro screens built from the mockups (details in 6.4-6.6). MPPT cards are matched by CustomName, with a fallback for unmatched names. Added AC input voltage (`vebus/<inst>/Ac/ActiveIn/L1/V`) to 5.5 and the subscriptions, unverified like the rest. Montserrat 36 added. LVGL heap 48 KB to 56 KB, with its use logged at boot. Shared row and label helpers moved to `src/ui.cpp`. Flash use 52%, static RAM 37%. |
