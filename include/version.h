@@ -3,7 +3,7 @@
 // GitHub release tag must be "v" + FW_VERSION.
 #pragma once
 
-#define FW_VERSION "1.0.2"
+#define FW_VERSION "1.0.3"
 
 // GitHub repository ("owner/name") whose releases carry the updates. It must be
 // public: the device downloads without logging in. Empty = update checks off.

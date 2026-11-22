@@ -5,7 +5,7 @@
 
 #include "display.h"
 #include "board.h"
-#include "logo_a8.h"
+#include "logo_rgb565.h"
 #include "settings.h"
 #include "theme.h"
 
@@ -48,12 +48,14 @@ static void tick(lv_timer_t*) {
         lv_obj_remove_flag(cover, LV_OBJ_FLAG_HIDDEN);
         logoShownAt = millis();
         state = State::Logo;
+        Serial.println("Snooze: showing the logo");
       }
       break;
     case State::Logo:
       if (millis() - logoShownAt >= LOGO_MS) {
         display_set_brightness(0);
         state = State::Asleep;
+        Serial.println("Snooze: screen off");
       }
       break;
     case State::Asleep:
@@ -62,14 +64,14 @@ static void tick(lv_timer_t*) {
 }
 
 void snooze_begin() {
-  // The logo is an alpha mask in flash, tinted solar pink (like the nav icons)
+  // The logo is the original artwork in RGB565, cropped, in flash
   logoDsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-  logoDsc.header.cf = LV_COLOR_FORMAT_A8;
+  logoDsc.header.cf = LV_COLOR_FORMAT_RGB565;
   logoDsc.header.w = LOGO_W;
   logoDsc.header.h = LOGO_H;
-  logoDsc.header.stride = LOGO_W;
-  logoDsc.data_size = sizeof(logo_a8);
-  logoDsc.data = logo_a8;
+  logoDsc.header.stride = LOGO_W * 2;
+  logoDsc.data_size = sizeof(logo_rgb565);
+  logoDsc.data = reinterpret_cast<const uint8_t*>(logo_rgb565);
 
   cover = lv_obj_create(lv_layer_top());
   lv_obj_remove_style_all(cover);
@@ -79,9 +81,16 @@ void snooze_begin() {
   lv_obj_remove_flag(cover, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_t* logo = lv_image_create(cover);  // not clickable, so taps reach the cover
   lv_image_set_src(logo, &logoDsc);
-  lv_obj_set_style_image_recolor(logo, lv_color_hex(theme::SOLAR), 0);
-  lv_obj_set_style_image_recolor_opa(logo, LV_OPA_COVER, 0);
   lv_obj_set_pos(logo, LOGO_X, LOGO_Y);
+  // For bring-up: the logo once didn't show (black screen). This says whether
+  // LVGL took the image and where it sits.
+  lv_obj_update_layout(cover);
+  lv_area_t a;
+  lv_obj_get_coords(logo, &a);
+  lv_image_header_t hdr;
+  bool decodable = lv_image_decoder_get_info(&logoDsc, &hdr) == LV_RESULT_OK;
+  Serial.printf("Snooze: logo %s (%dx%d), placed at %d,%d to %d,%d\n", decodable ? "readable" : "NOT readable",
+                decodable ? (int)hdr.w : 0, decodable ? (int)hdr.h : 0, (int)a.x1, (int)a.y1, (int)a.x2, (int)a.y2);
   lv_obj_add_flag(cover, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(cover, LV_OBJ_FLAG_PRESS_LOCK);  // the press stays on the cover even if the finger slides
   lv_obj_add_flag(cover, LV_OBJ_FLAG_HIDDEN);

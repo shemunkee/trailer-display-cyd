@@ -247,7 +247,7 @@ All settings saved in NVS.
 * Any tap wakes it and returns to the last screen. A tap during the logo cancels the snooze.
 * The waking tap only wakes the screen; it never presses a button underneath
 * No snooze on the setup screen (the QR codes need to stay visible) or in the Wokwi build (no touch to wake it)
-* Logo: one color, solar pink `#F0457E`, on black (Sabrina, 2026-11-22). Stored as a cropped 165x210 8-bit alpha mask (`include/logo_a8.h`, 34 KB, was 150 KB RGB565) and tinted by LVGL. Made by `tools/make_logo.py` from the original artwork in `tools/logo_source_rgb565.h`.
+* Logo: the original artwork in its own colors, cropped to the logo: 165x210 RGB565 (`include/logo_rgb565.h`, 69 KB, was 150 KB full screen), drawn on black at the same spot as in the 320x240 original. Made by `tools/make_logo.py` from `tools/logo_source_rgb565.h`. (The one-color pink version from earlier on 2026-11-22 is dropped at Sabrina's request; it also didn't show on the device, only a black screen. The boot log now says whether LVGL can read the logo and where it sits, and logs "Snooze: showing the logo" / "screen off".)
 
 ### 6.11 Alerts
 
@@ -326,3 +326,4 @@ All settings saved in NVS.
 | 2026-11-22 | Firmware 1.0.1: first OTA test release (no other changes). |
 | 2026-11-22 | Updates install automatically (5.7), Sabrina's call so Dad never has to do anything: checked a minute after boot and daily, installed the next time the screen sleeps, quietly in the dark. Manual Check / Install stays. Signing, no-downgrade and rollback unchanged. Test releases go to a separate test board by USB, no test channel. |
 | 2026-11-22 | 1.0.1 installed over WiFi on Sabrina's board (first OTA confirmed on the device). Firmware 1.0.2: automatic updates. |
+| 2026-11-22 | Firmware 1.0.3: snooze logo back to the original colors, cropped (69 KB; about 350 KB free in each firmware slot). The one-color logo showed only a black screen on the device; snooze now logs what it does to help find out why if it recurs. |
