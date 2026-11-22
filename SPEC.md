@@ -33,7 +33,7 @@ A small wall display in the RV that shows the Victron system status I normally c
 * No secrets in source, in `platformio.ini`, or in git
 * MQTT: PubSubClient 2.8 (1 KB buffer), over WiFiClient locally and WiFiClientSecure for cloud. Networking runs in its own FreeRTOS task on core 0; LVGL stays on core 1 and reads status through a mutex.
 * Envs: `cyd_ili9341` (default), `cyd_st7789`, `wokwi` (simulator, no touch). Partition table `huge_app.csv` (3 MB app, no OTA).
-* NVS namespaces: `settings` (keys `lowsoc`, `snooze`, `bright`, `src`, `lastac`), `touch` (calibration `m` + version `v`), `net` (setup values: `hs_ssid`, `hs_pass`, `mq_host`, `mq_port`, `mq_user`, `gx_pass`, `wf_ssid`, `wf_pass`, `portal`, `vrm_user`, `vrm_token`, plus the one-shot `setup` flag set by Run setup). The VRM token is stored bare; `Token ` is added when connecting.
+* NVS namespaces: `settings` (keys `lowsoc`, `snooze`, `bright`, `src`, `lastac`), `touch` (calibration `m` + version `v`), `net` (setup values: `hs_ssid`, `hs_pass`, `mq_host`, `mq_port`, `mq_user`, `gx_pass`, `wf_ssid`, `wf_pass`, `portal`, `vrm_user`, `vrm_token`, `ap_pass` (the setup network password), plus the one-shot `setup` flag set by Run setup). The VRM token is stored bare; `Token ` is added when connecting.
 
 ## 4. Victron system
 
@@ -172,7 +172,7 @@ All settings saved in NVS.
 
 ### 6.9 Setup (first boot, or Run setup)
 
-* The CYD starts its own WiFi network (`CYD-Setup`) with a random password made fresh each time setup opens
+* The CYD starts its own WiFi network (`Victron_CYD`). Its random password is made once per device on the first setup, kept in NVS, and reused every time setup opens, so a phone that joined before can rejoin on its own. The QR code and password text are still shown each time.
 * Screen shows two QR codes: (1) join the setup WiFi (standard `WIFI:T:WPA;S:...;P:...;;` format), (2) open `http://192.168.4.1`. Print the network name, password and address as text too.
 * Captive portal so most phones open the page on their own
 * The page collects: Cerbo hotspot SSID and password, local broker host/port (prefilled), optional GX username and password, trailer WiFi SSID and password, VRM portal ID, VRM email, VRM token
@@ -256,3 +256,4 @@ All settings saved in NVS.
 | 2026-11-22 | Item 12 built: snooze (`src/snooze.cpp`). Logo now flashes for 1s instead of 3s before the backlight turns off. The logo is drawn by LVGL from flash on the top layer, and also catches the waking tap so nothing underneath is pressed. Uses LVGL's inactivity timer and the Snooze setting, so changes take effect immediately. `snooze_wake()` is ready for alarms (item 13). Flash use 48%. |
 | 2026-11-22 | Item 6 built: cloud MQTT. `src/mqtt_local.*` became `src/mqtt_link.*`, one task handling both modes with the same subscriptions, keepalive and logging. Cloud: broker `mqttN.victronenergy.com:8883` from the portal ID, TLS verified with the Victron CA (`include/venus_ca.h`), login VRM email + `Token <token>`, "Cloud: VRM token rejected" on MQTT refusal (4/5), TLS errors logged. Email and token masked in logs. Interim local/cloud choice per attempt (see 5.3); switching back while on cloud is item 7. Flash use 51%. |
 | 2026-11-22 | Added OTA updates from GitHub Releases, with on-screen approval and signed firmware, to Later. Planned for when Dad's unit is built. |
+| 2026-11-22 | Setup network renamed `Victron_CYD` (was `CYD-Setup`). Its password is no longer new each time: it's generated once per device with the hardware RNG, saved as `net/ap_pass` and reused, so it stays out of source. Erasing flash makes a new one. |

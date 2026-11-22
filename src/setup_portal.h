@@ -1,4 +1,4 @@
-// Setup portal (SPEC.md 6.9): the CYD-Setup WiFi network, captive DNS and the
+// Setup portal (SPEC.md 6.9): the Victron_CYD WiFi network, captive DNS and the
 // setup web page. Saving stores to NVS and restarts.
 #pragma once
 

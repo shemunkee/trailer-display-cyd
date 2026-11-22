@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <DNSServer.h>
 #include <WebServer.h>
+#include <Preferences.h>
 #include <WiFi.h>
 #include <esp_random.h>
 
@@ -10,7 +11,7 @@
 #include "setup_page.h"
 #include "setup_screen.h"
 
-static constexpr const char* AP_SSID = "CYD-Setup";
+static constexpr const char* AP_SSID = "Victron_CYD";
 static constexpr const char* AP_URL = "http://192.168.4.1";
 static const IPAddress AP_IP(192, 168, 4, 1);
 static constexpr int PASS_LEN = 10;
@@ -22,11 +23,24 @@ static NetConfig cfg;
 static char apPass[PASS_LEN + 1];
 static uint32_t restartAt = 0;
 
-// Lowercase letters and digits without lookalikes (no 0/o, 1/l/i)
-static void makePassword() {
+// The setup password is made once per device and kept in NVS (net/ap_pass), so
+// the same password works every time setup opens. It never lives in source.
+// Lowercase letters and digits without lookalikes (no 0/o, 1/l/i).
+static void loadOrMakePassword() {
   static const char alphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
-  for (int i = 0; i < PASS_LEN; i++) apPass[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
-  apPass[PASS_LEN] = 0;
+  Preferences prefs;
+  prefs.begin("net", false);
+  String saved = prefs.getString("ap_pass", "");
+  bool valid = saved.length() == PASS_LEN;
+  for (char ch : saved) valid = valid && strchr(alphabet, ch);
+  if (valid) {
+    strlcpy(apPass, saved.c_str(), sizeof(apPass));
+  } else {
+    for (int i = 0; i < PASS_LEN; i++) apPass[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
+    apPass[PASS_LEN] = 0;
+    prefs.putString("ap_pass", apPass);
+  }
+  prefs.end();
 }
 
 static String jsonString(const String& s) {
@@ -156,7 +170,7 @@ void setup_portal_begin(bool canCancel) {
   // Starting the radio first makes esp_random() a true hardware random source
   WiFi.mode(WIFI_AP);
   delay(100);
-  makePassword();
+  loadOrMakePassword();
   WiFi.softAPConfig(AP_IP, AP_IP, IPAddress(255, 255, 255, 0));
   WiFi.softAP(AP_SSID, apPass);
   Serial.printf("Setup: network %s open at %s (password on screen)\n", AP_SSID, AP_URL);
