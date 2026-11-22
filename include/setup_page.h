@@ -32,8 +32,9 @@ button.main{width:100%;background:#7C88F7;color:#000;font-weight:600;padding:12p
 <label>Hotspot password</label><div data-secret="hs_pass"></div>
 <div class="row"><div><label for="mq_host">Broker address</label><input id="mq_host" name="mq_host" maxlength="63"></div>
 <div class="port"><label for="mq_port">Port</label><input id="mq_port" name="mq_port" inputmode="numeric" maxlength="5"></div></div>
+<label for="mq_user">GX username (optional)</label><input id="mq_user" name="mq_user" maxlength="32" autocapitalize="none">
 <label>GX password (optional)</label><div data-secret="gx_pass"></div>
-<p class="note">Only needed if the Cerbo's security profile is "Weak".</p>
+<p class="note">Only needed if the Cerbo's security profile is "Weak". Leave the username blank unless MQTT Explorer needed one.</p>
 </section>
 <section>
 <h2>Trailer WiFi and VRM (cloud mode)</h2>
@@ -50,7 +51,7 @@ button.main{width:100%;background:#7C88F7;color:#000;font-weight:600;padding:12p
 <script>
 function input(name){var i=document.createElement('input');i.name=name;i.type='password';i.maxLength=128;return i}
 fetch('/config').then(function(r){return r.json()}).then(function(c){
- ['hs_ssid','mq_host','mq_port','wf_ssid','portal','vrm_user'].forEach(function(k){document.getElementById(k).value=c[k]});
+ ['hs_ssid','mq_host','mq_port','mq_user','wf_ssid','portal','vrm_user'].forEach(function(k){document.getElementById(k).value=c[k]});
  document.querySelectorAll('[data-secret]').forEach(function(d){
   var k=d.dataset.secret;
   if(!c.saved[k]){d.appendChild(input(k));return}

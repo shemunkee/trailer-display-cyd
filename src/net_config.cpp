@@ -11,6 +11,7 @@ void net_config_load(NetConfig& c) {
   c.hotspotPass = prefs.getString("hs_pass", "");
   c.mqttHost = prefs.getString("mq_host", DEFAULT_MQTT_HOST);
   c.mqttPort = prefs.getUShort("mq_port", DEFAULT_MQTT_PORT);
+  c.mqttUser = prefs.getString("mq_user", "");
   c.gxPass = prefs.getString("gx_pass", "");
   c.wifiSsid = prefs.getString("wf_ssid", "");
   c.wifiPass = prefs.getString("wf_pass", "");
@@ -29,6 +30,7 @@ void net_config_save(const NetConfig& c) {
   prefs.putString("hs_pass", c.hotspotPass);
   prefs.putString("mq_host", c.mqttHost);
   prefs.putUShort("mq_port", c.mqttPort);
+  prefs.putString("mq_user", c.mqttUser);
   prefs.putString("gx_pass", c.gxPass);
   prefs.putString("wf_ssid", c.wifiSsid);
   prefs.putString("wf_pass", c.wifiPass);
@@ -51,8 +53,9 @@ String mask_secret(const String& s) {
 static const char* setOrEmpty(const String& s) { return s.isEmpty() ? "empty" : "set"; }
 
 void net_config_log(const NetConfig& c) {
-  Serial.printf("Net: hotspot %s (pass %s), broker %s:%u (GX pass %s)\n", mask_secret(c.hotspotSsid).c_str(),
-                setOrEmpty(c.hotspotPass), c.mqttHost.c_str(), c.mqttPort, setOrEmpty(c.gxPass));
+  Serial.printf("Net: hotspot %s (pass %s), broker %s:%u (GX user %s, GX pass %s)\n",
+                mask_secret(c.hotspotSsid).c_str(), setOrEmpty(c.hotspotPass), c.mqttHost.c_str(), c.mqttPort,
+                setOrEmpty(c.mqttUser), setOrEmpty(c.gxPass));
   Serial.printf("Net: trailer WiFi %s (pass %s), portal %s, VRM user %s, token %s\n",
                 mask_secret(c.wifiSsid).c_str(), setOrEmpty(c.wifiPass), mask_secret(c.portalId).c_str(),
                 mask_secret(c.vrmUser).c_str(),

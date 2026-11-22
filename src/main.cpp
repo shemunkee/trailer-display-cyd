@@ -1,5 +1,5 @@
 // CYD Victron display (see SPEC.md)
-// Built so far: display, touch with saved calibration, settings in NVS, setup portal.
+// Built so far: display, touch with saved calibration, settings in NVS, setup portal, local MQTT.
 
 #include <Arduino.h>
 #include <lvgl.h>
@@ -7,6 +7,7 @@
 #include "calibration.h"
 #include "demo_screen.h"
 #include "display.h"
+#include "mqtt_local.h"
 #include "net_config.h"
 #include "settings.h"
 #include "setup_portal.h"
@@ -41,7 +42,10 @@ void setup() {
   touch_lvgl_begin();
 #endif
   if (setupMode) setup_portal_begin(net_config_has_network(net));
-  else demo_screen_create();
+  else {
+    mqtt_local_begin();
+    demo_screen_create();
+  }
 }
 
 void loop() {

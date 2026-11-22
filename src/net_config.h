@@ -12,7 +12,8 @@ struct NetConfig {
   String hotspotSsid, hotspotPass;
   String mqttHost = DEFAULT_MQTT_HOST;
   uint16_t mqttPort = DEFAULT_MQTT_PORT;
-  String gxPass;  // optional, needed by the Cerbo's "Weak" security profile
+  String mqttUser;  // optional; sent with gxPass for the Cerbo's "Weak" security profile
+  String gxPass;
   // Cloud mode: trailer WiFi and VRM
   String wifiSsid, wifiPass;
   String portalId, vrmUser;

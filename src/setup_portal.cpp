@@ -60,6 +60,7 @@ static void handleConfig() {
   j += "\"hs_ssid\":" + jsonString(cfg.hotspotSsid);
   j += ",\"mq_host\":" + jsonString(cfg.mqttHost);
   j += ",\"mq_port\":\"" + String(cfg.mqttPort) + "\"";
+  j += ",\"mq_user\":" + jsonString(cfg.mqttUser);
   j += ",\"wf_ssid\":" + jsonString(cfg.wifiSsid);
   j += ",\"portal\":" + jsonString(cfg.portalId);
   j += ",\"vrm_user\":" + jsonString(cfg.vrmUser);
@@ -90,6 +91,7 @@ static void handleSave() {
   NetConfig next = cfg;
   next.hotspotSsid = field("hs_ssid");
   next.mqttHost = field("mq_host");
+  next.mqttUser = field("mq_user");
   next.wifiSsid = field("wf_ssid");
   next.portalId = field("portal");
   next.portalId.toLowerCase();

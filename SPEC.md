@@ -1,8 +1,8 @@
 # CYD Victron Display: Build Spec
 
-**Status:** v1 in progress (checklist items 1-3 built)
+**Status:** v1 in progress (checklist items 1-4 built)
 **Owner:** Sabrina
-**Last updated:** 2026-11-21
+**Last updated:** 2026-11-22
 
 > **For Claude Code:** This file is the source of truth for what the device does. Read it before every task. When a decision changes or a feature ships, update this file in the same change: edit the relevant section, tick the checklist, and add a line to the Change log. Don't build anything listed under Later unless asked. If the code and this spec disagree, ask which one is right.
 
@@ -31,8 +31,9 @@ A small wall display in the RV that shows the Victron system status I normally c
 * MQTT client with TLS support (cloud mode needs TLS on port 8883)
 * Settings stored in NVS (Preferences)
 * No secrets in source, in `platformio.ini`, or in git
+* MQTT: PubSubClient 2.8 (1 KB buffer). Networking runs in its own FreeRTOS task on core 0; LVGL stays on core 1 and reads status through a mutex.
 * Envs: `cyd_ili9341` (default), `cyd_st7789`, `wokwi` (simulator, no touch). Partition table `huge_app.csv` (3 MB app, no OTA).
-* NVS namespaces: `settings` (keys `lowsoc`, `snooze`, `bright`, `src`, `lastac`), `touch` (calibration `m` + version `v`), `net` (setup values: `hs_ssid`, `hs_pass`, `mq_host`, `mq_port`, `gx_pass`, `wf_ssid`, `wf_pass`, `portal`, `vrm_user`, `vrm_token`, plus the one-shot `setup` flag set by Run setup). The VRM token is stored bare; `Token ` is added when connecting.
+* NVS namespaces: `settings` (keys `lowsoc`, `snooze`, `bright`, `src`, `lastac`), `touch` (calibration `m` + version `v`), `net` (setup values: `hs_ssid`, `hs_pass`, `mq_host`, `mq_port`, `mq_user`, `gx_pass`, `wf_ssid`, `wf_pass`, `portal`, `vrm_user`, `vrm_token`, plus the one-shot `setup` flag set by Run setup). The VRM token is stored bare; `Token ` is added when connecting.
 
 ## 4. Victron system
 
@@ -52,7 +53,7 @@ Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance 
 
 * Join the Cerbo's hotspot (SSID and password from setup)
 * MQTT broker at the Cerbo's hotspot address, usually `172.24.24.1`. Make host and port settable in setup, with that default.
-* Port 1883. Support optional username/password, because the Cerbo's "Weak" security profile requires the GX password.
+* Port 1883. Support optional username/password, because the Cerbo's "Weak" security profile requires the GX password. The username is its own optional setup field (blank by default) because the dbus-flashmq README doesn't say which username goes with the GX password; check with MQTT Explorer.
 * No internet access in this mode. That's the point of it.
 
 ### 5.2 Cloud mode (fallback)
@@ -76,8 +77,10 @@ Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance 
 ### 5.4 MQTT details (both modes)
 
 * Topics use the form `N/<portalId>/<service>/<instance>/<path>`, payload is JSON `{"value": ...}`
-* Find the portal ID automatically by subscribing to `N/+/system/0/Serial` (local mode). In cloud mode use the portal ID from setup.
-* Keep the data flowing by publishing a keepalive to `R/<portalId>/keepalive` about every 30s. Check the current Venus OS keepalive format in the dbus-flashmq README.
+* Local mode: try to find the portal ID by subscribing to `N/+/system/0/Serial` for 10s. The dbus-flashmq README doesn't document this (it says nothing is published before a keepalive, and to read the ID off the Cerbo or VRM), so if nothing arrives, use the portal ID from setup. If both exist and differ, the discovered one wins and a warning is logged. In cloud mode use the portal ID from setup.
+* Keep the data flowing by publishing a keepalive to `R/<portalId>/keepalive` every 30s (the broker's keepalive timeout is 60s). Checked against the dbus-flashmq README on 2026-11-21: the first keepalive after connecting has an empty payload (the Cerbo republishes every subscribed value), later ones send `{"keepalive-options":["suppress-republish"]}`.
+* The end of a full republish is marked by `N/<portalId>/full_publish_completed`. Nothing is retained. Payloads are `{"value": ...}`, `{"value": null}` for an invalid value, and an empty payload when a device has gone.
+* Subscribe only to the 5.5 paths, never `N/<portalId>/#`, so the full republish stays small.
 * **Read only:** never publish to any `W/` topic. Only `R/` keepalive requests are allowed.
 
 ### 5.5 Data points
@@ -170,7 +173,7 @@ All settings saved in NVS.
 * The CYD starts its own WiFi network (`CYD-Setup`) with a random password made fresh each time setup opens
 * Screen shows two QR codes: (1) join the setup WiFi (standard `WIFI:T:WPA;S:...;P:...;;` format), (2) open `http://192.168.4.1`. Print the network name, password and address as text too.
 * Captive portal so most phones open the page on their own
-* The page collects: Cerbo hotspot SSID and password, local broker host/port (prefilled), optional GX password, trailer WiFi SSID and password, VRM portal ID, VRM email, VRM token
+* The page collects: Cerbo hotspot SSID and password, local broker host/port (prefilled), optional GX username and password, trailer WiFi SSID and password, VRM portal ID, VRM email, VRM token
 * Saved secrets are never sent back to the page. Show "Saved" with a Replace option.
 * On save: store in NVS, shut down the setup network, restart
 * Opens on boot when no WiFi (hotspot or trailer) is saved, or after Run setup (sets an NVS flag and restarts). Until the Settings screen exists, the demo screen has a Run setup button.
@@ -209,13 +212,21 @@ All settings saved in NVS.
 * Wake on pickup (motion sensor)
 * History graphs (VRM API or local)
 * Port to a larger display, sharing the same data layer
+* OTA updates from GitHub Releases (plan for when a second unit is built for Dad):
+    * Display checks a GitHub Release for a newer version about once a day, only when it has internet (Cloud mode or home WiFi). Settings gets a "Check for updates" button.
+    * Shows "Update available, tap to install". Never installs without a tap on the device.
+    * Firmware is signed with a private key kept on Sabrina's laptop and never committed. The device rejects anything not signed with it.
+    * HTTPS with certificate checks. Rollback to the previous version if the new one fails to boot.
+    * Needs a two slot (OTA) partition layout instead of `huge_app.csv`, which means one last USB flash to switch over.
+    * First flash for a new unit: browser flasher (ESP Web Tools) hosted on GitHub Pages.
+    * Each unit uses its own read only VRM user and token for its own installation.
 
 ## 9. Build checklist
 
 - [x] Project scaffold, display and touch working, touch calibration saved (confirmed on the device with `cyd_ili9341`, including calibration kept after a power cycle)
 - [x] Settings in NVS (confirmed on the device: setting changed on the demo screen kept after a power cycle)
 - [x] Setup portal with QR codes (confirmed on the device: QR scan, captive page, save and restart, rerun shows Saved, Cancel)
-- [ ] Local MQTT: connect, portal ID discovery, keepalive
+- [x] Local MQTT: connect, portal ID discovery, keepalive (still to check at the trailer: join, connect, portal ID, paths seen, keepalive every 30s)
 - [ ] Topic paths verified against the live system (update 5.5)
 - [ ] Cloud MQTT: broker index, TLS, token login, error status
 - [ ] Local first with cloud fallback, and switching back to local
@@ -237,3 +248,5 @@ All settings saved in NVS.
 | 2026-11-21 | Item 3 built: setup portal. `CYD-Setup` WPA2 network with a fresh 10-character password (hardware RNG, no lookalike characters), captive DNS that sends every lookup and unknown path to the form, LVGL QR codes (`LV_USE_QRCODE`, no extra libraries; Arduino WebServer and DNSServer). Values saved to NVS `net`. Added the setup trigger, prefill and Cancel behavior to 6.9, and the unencrypted NVS note to 7. Shared LVGL helpers moved to `src/ui.cpp`. Flash use is now 43% of the 3 MB app slot, RAM 34%. |
 | 2026-11-21 | Setup portal confirmed on the device (`cyd_ili9341`): QR join, captive page, save and restart with masked log, rerun prefill and Saved/Replace, Cancel. |
 | 2026-11-21 | Items 1-2 fully confirmed on the device: touch calibration and demo screen settings survive a power cycle. |
+| 2026-11-22 | Item 4 built: local MQTT (`src/mqtt_local.cpp`). Scans for and joins the hotspot (15s), connects with optional GX username/password, finds the portal ID (discovery first, setup ID fallback), subscribes to the 5.5 paths plus `full_publish_completed`, keepalive as above. A single publish function refuses anything not starting with `R/`. Serial log prints the first value seen per 5.5 path and lists missing paths after each full publish, to help with item 5; portal IDs are masked in logs. Status shows on the demo screen. Added the optional GX username (`mq_user`) to setup. Updated 5.1 and 5.4 from the dbus-flashmq README. |
+| 2026-11-22 | Added OTA updates from GitHub Releases, with on-screen approval and signed firmware, to Later. Planned for when Dad's unit is built. |
