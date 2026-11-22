@@ -1,9 +1,10 @@
 // Firmware updates over WiFi from GitHub releases (SPEC.md 5.7).
-// The network task checks about once a day (and when asked from Settings),
-// pausing MQTT while it does. An update only installs after a tap on the
-// device, only if the release manifest is signed with our key and the file
-// matches it, and never to an older version. A new version that doesn't run
-// for 60 s is rolled back by the bootloader.
+// The network task checks a minute after boot, then once a day (and when asked
+// from Settings), pausing MQTT while it does. A newer version installs by itself
+// the next time the screen sleeps, or straight away with a tap. It only installs
+// if the release manifest is signed with our key and the file matches it, and
+// never to an older version. A new version that doesn't run for 60 s is rolled
+// back by the bootloader.
 #pragma once
 
 #include <stdint.h>
@@ -26,6 +27,7 @@ struct OtaStatus {
   uint8_t progress = 0;   // 0-100 while installing
   char message[48] = "";  // why a check or install failed
   bool rolledBack = false;  // the last update didn't start and was undone
+  bool quiet = false;       // the current install started on its own while the screen slept
   uint16_t checksDone = 0;   // counts finished checks, so the UI knows when an asked check is done
 };
 
@@ -36,7 +38,8 @@ const char* ota_version();  // this firmware, e.g. "1.0.0"
 
 // From the UI
 void ota_request_check();
-void ota_request_install();
+// quiet: automatic install while the screen sleeps, so it isn't woken for the progress screen
+void ota_request_install(bool quiet = false);
 
 // From the network task, with WiFi up
 bool ota_work_due();  // a check is due or an install was asked for

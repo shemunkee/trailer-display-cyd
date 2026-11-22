@@ -25,6 +25,8 @@ static void lightUp() {
   state = State::Awake;
 }
 
+bool snooze_asleep() { return state == State::Asleep; }
+
 void snooze_wake() {
   if (state == State::Awake) return;
   lv_obj_add_flag(cover, LV_OBJ_FLAG_HIDDEN);

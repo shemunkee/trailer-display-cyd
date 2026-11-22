@@ -1,6 +1,7 @@
-// Update prompts on the screen (SPEC.md 5.7): a blue UPDATE label top left on
+// Update prompts on the screen (SPEC.md 5.7): updates install by themselves
+// once the screen sleeps; until then a blue UPDATE label top left on
 // the data screens when a new version is ready, an "Install?" dialog, and a
-// progress screen while it installs. Nothing installs without a tap.
+// progress screen while it installs (shown on waking during a quiet install).
 #pragma once
 
 #include <lvgl.h>

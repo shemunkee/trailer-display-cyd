@@ -1,6 +1,8 @@
 #include "update_ui.h"
 
+#include <Arduino.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "board.h"
 #include "ota.h"
@@ -130,14 +132,32 @@ static void showProgress(const OtaStatus& st) {
   if (st.state == OtaState::Restarting) snprintf(buf, sizeof(buf), "Done, restarting");
   else snprintf(buf, sizeof(buf), "%u%%  " LV_SYMBOL_BULLET "  Keep it plugged in", st.progress);
   ui_set_text(progressText, buf);
+  if (st.quiet && snooze_asleep()) {
+    // Automatic install in the dark: stay behind the snooze cover so a tap
+    // still wakes the screen, which then shows this progress screen
+    lv_obj_move_background(progress);
+    return;
+  }
   // Stay awake and in front while it installs
   snooze_wake();
   lv_display_trigger_activity(nullptr);
   lv_obj_move_foreground(progress);
 }
 
+// SPEC 5.7: a found update installs by itself once the screen has gone to
+// sleep, so nobody has to do anything and nobody is interrupted. One automatic
+// try per version; after a failure it waits for the next daily check or a tap.
+static void autoInstall(const OtaStatus& st) {
+  static char tried[16] = "";
+  if (st.state != OtaState::Available || !snooze_asleep() || !strcmp(tried, st.latest)) return;
+  strlcpy(tried, st.latest, sizeof(tried));
+  Serial.printf("OTA: screen asleep, installing %s automatically\n", st.latest);
+  ota_request_install(true);
+}
+
 void update_ui_tick(bool dataPage) {
   OtaStatus st = ota_status();
+  autoInstall(st);
   bool installing = st.state == OtaState::Installing || st.state == OtaState::Restarting;
   if (installing) showProgress(st);
   else if (progress) {  // failed: back to the screens; the reason shows in Settings

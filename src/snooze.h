@@ -5,3 +5,4 @@
 
 void snooze_begin();  // after the first screen is created
 void snooze_wake();   // e.g. for alarms (SPEC 6.11)
+bool snooze_asleep(); // backlight off (after the logo); a quiet time for automatic updates

@@ -102,9 +102,11 @@ void ota_request_check() {
   if (enabled()) checkAsked = true;
 }
 
-void ota_request_install() {
+void ota_request_install(bool quiet) {
   OtaState s = ota_status().state;
-  if (s == OtaState::Available || s == OtaState::InstallFailed) installAsked = true;
+  if (s != OtaState::Available && s != OtaState::InstallFailed) return;
+  edit([&](OtaStatus& st) { st.quiet = quiet; });
+  installAsked = true;
 }
 
 bool ota_work_due() {
