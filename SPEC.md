@@ -32,8 +32,8 @@ A small wall display in the RV that shows the Victron system status I normally c
 * Settings stored in NVS (Preferences)
 * No secrets in source, in `platformio.ini`, or in git
 * MQTT: PubSubClient 2.8 (1 KB buffer), over WiFiClient locally and WiFiClientSecure for cloud. Networking runs in its own FreeRTOS task on core 0; LVGL stays on core 1 and reads status through a mutex.
-* Envs: `cyd_ili9341` (default), `cyd_st7789`, `wokwi` (simulator, no touch). Partition table `huge_app.csv` (3 MB app, no OTA).
-* NVS namespaces: `settings` (keys `lowsoc`, `snooze`, `bright`, `src`, `lastac`, `flip`), `touch` (calibration `m` + version `v`), `net` (setup values: `mq_host`, `mq_port`, `mq_user`, `gx_pass`, `wf_ssid`, `wf_pass` (the one WiFi), `portal`, `vrm_user`, `vrm_token`, `ap_pass` (the setup network password), plus the one-shot `setup` flag set by Run setup). Older `hs_ssid` / `hs_pass` (Cerbo hotspot) are read once as the WiFi if none is saved, and removed on the next save; a saved broker `172.24.24.1` becomes `venus.local`. The VRM token is stored bare; `Token ` is added when connecting.
+* Envs: `cyd_ili9341` (default), `cyd_st7789`, `wokwi` (simulator, no touch). Partition table `partitions_ota.csv`: two 1.94 MB firmware slots for OTA (5.7); `nvs` and `otadata` sit where `huge_app.csv` had them, so settings survive the switch.
+* NVS namespaces: `settings` (keys `lowsoc`, `snooze`, `bright`, `src`, `lastac`, `flip`), `touch` (calibration `m` + version `v`), `net` (setup values: `name` (display name), `mq_host`, `mq_port`, `mq_user`, `gx_pass`, `wf_ssid`, `wf_pass` (the one WiFi), `portal`, `vrm_user`, `vrm_token`, `ap_pass` (the setup network password), plus the one-shot `setup` flag set by Run setup). Older `hs_ssid` / `hs_pass` (Cerbo hotspot) are read once as the WiFi if none is saved, and removed on the next save; a saved broker `172.24.24.1` becomes `venus.local`. The VRM token is stored bare; `Token ` is added when connecting.
 
 ## 4. Victron system
 
@@ -79,7 +79,7 @@ Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance 
 ### 5.4 MQTT details (both modes)
 
 * Topics use the form `N/<portalId>/<service>/<instance>/<path>`, payload is JSON `{"value": ...}`
-* Local mode: try to find the portal ID by subscribing to `N/+/system/0/Serial` for 10s. The dbus-flashmq README doesn't document this (it says nothing is published before a keepalive, and to read the ID off the Cerbo or VRM), so if nothing arrives, use the portal ID from setup. If both exist and differ, the discovered one wins and a warning is logged. In cloud mode use the portal ID from setup.
+* Local mode: try to find the portal ID by subscribing to `N/+/system/0/Serial` for 10s. The dbus-flashmq README doesn't document this (it says nothing is published before a keepalive, and to read the ID off the Cerbo or VRM), so if nothing arrives, use the portal ID from setup. If both exist and differ, it's another trailer's Cerbo on the same WiFi (venus.local can find either): local mode refuses it (status "Different Cerbo found (portal ID)") and falls back to cloud; the log suggests entering our Cerbo by IP. (Changed 2026-11-22; was: the discovered one wins.) In cloud mode use the portal ID from setup.
 * Keep the data flowing by publishing a keepalive to `R/<portalId>/keepalive` every 30s (the broker's keepalive timeout is 60s). Checked against the dbus-flashmq README on 2026-11-21: the first keepalive after connecting has an empty payload (the Cerbo republishes every subscribed value), later ones send `{"keepalive-options":["suppress-republish"]}`.
 * The end of a full republish is marked by `N/<portalId>/full_publish_completed`. Nothing is retained. Payloads are `{"value": ...}`, `{"value": null}` for an invalid value, and an empty payload when a device has gone.
 * Subscribe only to the 5.5 paths, never `N/<portalId>/#`, so the full republish stays small.
@@ -124,6 +124,21 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 * Per-group update times are still kept in the data layer (`updatedMs`), in case we revisit this.
 * A device that goes away (empty payload) or a null value shows `--`, not a greyed number.
 * Settings isn't greyed; it shows the connection status itself. Alarms is greyed too, since the list could be out of date.
+
+### 5.7 Firmware updates (OTA)
+
+* **Decision (2026-11-22):** built now, ahead of Dad's unit (was in Later). Sabrina: "lets do ota updates now".
+* Releases live on GitHub Releases of a **public** repo: `SheMunkee/trailer-display-cyd` (`OTA_REPO` in `include/version.h`). Empty `OTA_REPO` = update checks off. The device never logs in to GitHub.
+* Each release has `firmware-cyd_ili9341.bin`, `firmware-cyd_st7789.bin`, `manifest.json` and `manifest.sig`. The manifest holds the version plus each file's size and SHA-256; each board fetches the file for its own build (`FW_BUILD`).
+* **Signing:** `manifest.json` is signed (ECDSA P-256, SHA-256) with a private key that lives only on Sabrina's laptop at `%USERPROFILE%\.victron_cyd\ota_signing_key.pem`, never in the project or git. The public key is built into the firmware (`include/ota_pubkey.h`). The device installs nothing unless the manifest signature checks out and the downloaded file's size and SHA-256 match the manifest. Back up the private key: without it, no display can be updated over WiFi again (only by USB with a new key).
+* **No downgrades:** only a version newer than the running one (`1.2.3` numbering) is offered.
+* **HTTPS** with certificate checks against the roots in `include/ota_ca.h` (GitHub: USERTrust ECC / Sectigo E46; release file host: ISRG Root X1; plus sibling roots). `tools/make_ota_ca.py` rebuilds it.
+* **When:** first check about a minute after boot once connected, then every 24 h (6 h after a failed check), and on demand from Settings > Data source > Check for updates. Checks need internet on the WiFi; in local mode without internet they just fail quietly and retry later.
+* MQTT is closed during a check or install (two TLS sessions don't fit in RAM next to LVGL), then reconnects. A check takes a few seconds; the screens may briefly show NO CONNECTION.
+* **Never installs without a tap:** a blue `UPDATE` label shows top left on the data screens. Tapping it (or Install in the Data source menu) asks "Update to X?" with Later / Install. While installing, a full-screen progress bar shows ("Keep it plugged in"), the screen stays awake, and the board restarts when done.
+* **Rollback:** the bootloader's app rollback is on. A new version must run 60 s before it's marked good; if it crashes or resets before that, the bootloader goes back to the previous version, and the menu shows "last update was undone".
+* **Making a release** (on the laptop): bump `FW_VERSION`, commit, run `python tools/make_release.py` (builds both boards, signs, checks the signature against `ota_pubkey.h`, writes `dist/v<version>/`), then publish a GitHub release tagged `v<version>` with the four files. `tools/ota_keygen.py` made the key pair once.
+* Not built yet: a browser flasher (ESP Web Tools on GitHub Pages) for the first flash of a new unit.
 
 ## 6. Screens
 
@@ -202,21 +217,21 @@ Five rows:
 | Snooze | 5s, 10s, 30s, 60s, 90s | 30s |
 | Brightness | Steps of 10% | 70% |
 | USB side | Left, Right: which side the USB cable comes out. Left turns the screen 180 degrees, at once. | Right |
-| Data source | Shows Local or Cloud and status. Tap opens: Run setup, Recalibrate touch | Auto |
+| Data source | Shows Local or Cloud and status. Tap opens: Run setup, Recalibrate touch, Check for updates / Install | Auto |
 
 * Layout as in the Settings mockup: one card per row, − / + buttons for Low SOC and Brightness, five buttons for Snooze with the chosen one in blue, Left / Right for USB side the same way. Rows are 6px apart with 26px buttons so five fit (the mockup has four)
 * USB side: touch calibration is always saved for the normal (USB right) orientation and mirrored when flipped, so flipping needs no recalibration; calibrating while flipped saves it the normal way too. The flip applies from power-up, including calibration and setup screens
 * Data source shows Local or Cloud (green when live, amber while connecting or failing, "No connection" in grey) with a short status below, such as "Live, 22/24 paths" or "VRM token rejected"
-* The Data source menu is a card over a dimmed screen with Run setup (restarts into setup), Recalibrate touch, and Close
+* The Data source menu is a card over a dimmed screen with Run setup (restarts into setup), Recalibrate touch, Check for updates ("Install X" when one is ready), a title with the display name ("Data source · Sabrina"), a line with the firmware version and update state, and Close (5.7)
 
 All settings saved in NVS.
 
 ### 6.9 Setup (first boot, or Run setup)
 
-* The CYD starts its own WiFi network (`Victron_CYD`). Its random password is made once per device on the first setup, kept in NVS, and reused every time setup opens, so a phone that joined before can rejoin on its own. The QR code and password text are still shown each time.
+* The CYD starts its own WiFi network, named per display so two nearby displays can't be mixed up: `Victron_CYD_<name>` (spaces become `_`), or `Victron_CYD_<4 hex digits from the MAC>` before it's named. The setup screen title shows "Setup: <name>". Its random password is made once per device on the first setup, kept in NVS, and reused every time setup opens, so a phone that joined before can rejoin on its own. The QR code and password text are still shown each time.
 * Screen shows two QR codes: (1) join the setup WiFi (standard `WIFI:T:WPA;S:...;P:...;;` format), (2) open `http://192.168.4.1`. Print the network name, password and address as text too.
 * Captive portal so most phones open the page on their own
-* The page collects, in three sections: trailer WiFi SSID and password; Cerbo address and port (prefilled `venus.local`:1883), optional GX username and password; VRM portal ID, VRM email, VRM token
+* The page collects, in four sections: display name (optional, up to 20 letters, digits, spaces or dashes, such as "Sabrina" or "Dad"); trailer WiFi SSID and password; Cerbo address and port (prefilled `venus.local`:1883), optional GX username and password; VRM portal ID, VRM email, VRM token
 * Saved secrets are never sent back to the page. Show "Saved" with a Replace option.
 * On save: store in NVS, shut down the setup network, restart
 * Opens on boot when no WiFi is saved, or after Run setup (sets an NVS flag and restarts). Run setup is in Settings → Data source.
@@ -231,7 +246,7 @@ All settings saved in NVS.
 * Any tap wakes it and returns to the last screen. A tap during the logo cancels the snooze.
 * The waking tap only wakes the screen; it never presses a button underneath
 * No snooze on the setup screen (the QR codes need to stay visible) or in the Wokwi build (no touch to wake it)
-* Logo: `include/logo_rgb565.h`, 320x240 RGB565 on black, in PROGMEM
+* Logo: one color, solar pink `#F0457E`, on black (Sabrina, 2026-11-22). Stored as a cropped 165x210 8-bit alpha mask (`include/logo_a8.h`, 34 KB, was 150 KB RGB565) and tinted by LVGL. Made by `tools/make_logo.py` from the original artwork in `tools/logo_source_rgb565.h`.
 
 ### 6.11 Alerts
 
@@ -248,7 +263,8 @@ All settings saved in NVS.
 * Never print secrets to serial logs. Mask them (for example `Token ****abcd`). Passwords log only as set/empty; the setup WiFi password is shown on screen, never logged.
 * NVS is not encrypted in v1, so someone with the board in hand could read the saved values. Turning on ESP32 flash encryption is hard to undo, so it's left out; the read-only VRM user limits the damage.
 * Cloud mode always verifies TLS certificates
-* No telemetry, no other servers, no OTA updates in v1
+* No telemetry. The only other server is GitHub, for update checks (5.7): it receives a plain download request, nothing about the system.
+* Updates install only when signed with Sabrina's key and approved with a tap on the device (5.7)
 * No notifications, emails or messages sent from the device
 
 ## 8. Later (don't build yet)
@@ -259,14 +275,7 @@ All settings saved in NVS.
 * Wake on pickup (motion sensor)
 * History graphs (VRM API or local)
 * Port to a larger display, sharing the same data layer
-* OTA updates from GitHub Releases (plan for when a second unit is built for Dad):
-    * Display checks a GitHub Release for a newer version about once a day, only when it has internet (Cloud mode or home WiFi). Settings gets a "Check for updates" button.
-    * Shows "Update available, tap to install". Never installs without a tap on the device.
-    * Firmware is signed with a private key kept on Sabrina's laptop and never committed. The device rejects anything not signed with it.
-    * HTTPS with certificate checks. Rollback to the previous version if the new one fails to boot.
-    * Needs a two slot (OTA) partition layout instead of `huge_app.csv`, which means one last USB flash to switch over.
-    * First flash for a new unit: browser flasher (ESP Web Tools) hosted on GitHub Pages.
-    * Each unit uses its own read only VRM user and token for its own installation.
+* OTA updates: built, see 5.7. Still later: a browser flasher (ESP Web Tools on GitHub Pages) for the first flash of a new unit. Each unit uses its own read only VRM user and token for its own installation.
 
 ## 9. Build checklist
 
@@ -284,6 +293,7 @@ All settings saved in NVS.
 - [x] Snooze with logo (still to check on the device)
 - [x] Low SOC and alarm alerts (still to check on the device; alarm paths to verify in item 5)
 - [ ] On device check: nothing cut off, all text readable
+- [x] OTA updates from GitHub releases, signed, with tap to install and rollback (5.7) (still to check: one USB flash to the new partition layout, then a test release)
 
 ## 10. Change log
 
@@ -310,3 +320,5 @@ All settings saved in NVS.
 | 2026-11-22 | Item 5 done: Passenger MPPT confirmed. New USB side setting (6.8): Left turns the screen 180 degrees, saved as `flip`; touch is mirrored so no recalibration is needed. Settings rows tightened to fit five. |
 | 2026-11-22 | One WiFi instead of two (Sabrina: the Cerbo is on the trailer WiFi, no need for both). Setup has one WiFi, a Cerbo address (default `venus.local`, looked up over mDNS) and VRM. Each attempt joins the WiFi, tries the Cerbo directly, then VRM over the same WiFi. While on cloud, a connection check to the Cerbo every 2 minutes (backing off as before) replaces the hotspot scan, and switching keeps the WiFi up. Old hotspot settings carry over. New status texts: "Cerbo not found on WiFi", "Cerbo broker" / "VRM broker not reachable". Sections 1, 3, 5.1-5.3, 6.9 updated. |
 | 2026-11-22 | Fixes from the first device run: the board crashed in a loop when the Cerbo address didn't resolve (MQTT client cleanup before any connect); Settings controls were drawn off to the right and low, clipped to their last button (seen in a photo), now laid out as a flex row. |
+| 2026-11-22 | OTA updates built (5.7), moved up from Later at Sabrina's request: two 1.94 MB slots (`partitions_ota.csv`, one USB flash to switch), daily signed-manifest check on GitHub releases, UPDATE label and Install dialog, progress screen, bootloader rollback after 60 s. Signing key made with `tools/ota_keygen.py` (private key outside the repo), releases with `tools/make_release.py`. Logo now one color (solar pink) as a cropped alpha mask, 150 KB to 34 KB. LVGL draw buffer moved from static RAM to the heap to make room. Firmware 1.0.0. |
+| 2026-11-22 | Display names, so Sabrina's and Dad's displays parked near each other can't be confused: optional name in setup (`net/name`), setup network `Victron_CYD_<name>` (or a MAC-based suffix before naming), name in the setup title, the Data source menu, the log and the mDNS host name (`cyd-<name>`). Local mode now refuses a Cerbo whose portal ID differs from setup and falls back to cloud (5.4). OTA repo set: `SheMunkee/trailer-display-cyd`. |

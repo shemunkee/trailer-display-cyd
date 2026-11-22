@@ -4,8 +4,10 @@
 #include <lvgl.h>
 
 #include "display.h"
-#include "logo_rgb565.h"
+#include "board.h"
+#include "logo_a8.h"
 #include "settings.h"
+#include "theme.h"
 
 static constexpr uint32_t LOGO_MS = 1000;
 static constexpr uint32_t CHECK_MS = 100;
@@ -15,7 +17,7 @@ enum class State { Awake, Logo, Asleep };
 static State state = State::Awake;
 static uint32_t logoShownAt = 0;
 static lv_image_dsc_t logoDsc;
-static lv_obj_t* cover;  // full-screen logo on the top layer; also catches the wake tap
+static lv_obj_t* cover;  // full-screen black cover with the logo, on the top layer; also catches the wake tap
 
 static void lightUp() {
   display_set_brightness(settings_get().brightnessPct);
@@ -58,18 +60,26 @@ static void tick(lv_timer_t*) {
 }
 
 void snooze_begin() {
-  // The logo is RGB565 in flash, the same byte order LVGL renders in
+  // The logo is an alpha mask in flash, tinted solar pink (like the nav icons)
   logoDsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-  logoDsc.header.cf = LV_COLOR_FORMAT_RGB565;
+  logoDsc.header.cf = LV_COLOR_FORMAT_A8;
   logoDsc.header.w = LOGO_W;
   logoDsc.header.h = LOGO_H;
-  logoDsc.header.stride = LOGO_W * 2;
-  logoDsc.data_size = sizeof(logo_rgb565);
-  logoDsc.data = reinterpret_cast<const uint8_t*>(logo_rgb565);
+  logoDsc.header.stride = LOGO_W;
+  logoDsc.data_size = sizeof(logo_a8);
+  logoDsc.data = logo_a8;
 
-  cover = lv_image_create(lv_layer_top());
-  lv_image_set_src(cover, &logoDsc);
-  lv_obj_set_pos(cover, 0, 0);
+  cover = lv_obj_create(lv_layer_top());
+  lv_obj_remove_style_all(cover);
+  lv_obj_set_size(cover, SCREEN_W, SCREEN_H);
+  lv_obj_set_style_bg_color(cover, lv_color_hex(theme::BG), 0);
+  lv_obj_set_style_bg_opa(cover, LV_OPA_COVER, 0);
+  lv_obj_remove_flag(cover, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_t* logo = lv_image_create(cover);  // not clickable, so taps reach the cover
+  lv_image_set_src(logo, &logoDsc);
+  lv_obj_set_style_image_recolor(logo, lv_color_hex(theme::SOLAR), 0);
+  lv_obj_set_style_image_recolor_opa(logo, LV_OPA_COVER, 0);
+  lv_obj_set_pos(logo, LOGO_X, LOGO_Y);
   lv_obj_add_flag(cover, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_flag(cover, LV_OBJ_FLAG_PRESS_LOCK);  // the press stays on the cover even if the finger slides
   lv_obj_add_flag(cover, LV_OBJ_FLAG_HIDDEN);

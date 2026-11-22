@@ -1,0 +1,9 @@
+# Two firmware slots for OTA updates (SPEC.md 5.7). nvs and otadata are at the
+# same place and size as in huge_app.csv, so saved settings, calibration and
+# setup survive the one USB flash that switches to this layout.
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+app0,     app,  ota_0,   0x10000,  0x1F0000,
+app1,     app,  ota_1,   0x200000, 0x1F0000,
+coredump, data, coredump,0x3F0000, 0x10000,

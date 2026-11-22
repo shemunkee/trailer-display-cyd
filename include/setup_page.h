@@ -26,6 +26,11 @@ button.main{width:100%;background:#7C88F7;color:#000;font-weight:600;padding:12p
 <h1>CYD Victron display setup</h1>
 <form method="post" action="/save" autocomplete="off">
 <section>
+<h2>This display</h2>
+<p class="note">A name to tell it apart from other displays nearby, such as "Sabrina" or "Dad". The setup network becomes Victron_CYD_ plus this name.</p>
+<label for="name">Display name</label><input id="name" name="name" maxlength="20" pattern="[A-Za-z0-9 \-]*">
+</section>
+<section>
 <h2>Trailer WiFi</h2>
 <p class="note">The WiFi the Cerbo is on. The display joins it too.</p>
 <label for="wf_ssid">WiFi network name (SSID)</label><input id="wf_ssid" name="wf_ssid" maxlength="32">
@@ -54,7 +59,7 @@ button.main{width:100%;background:#7C88F7;color:#000;font-weight:600;padding:12p
 <script>
 function input(name){var i=document.createElement('input');i.name=name;i.type='password';i.maxLength=128;return i}
 fetch('/config').then(function(r){return r.json()}).then(function(c){
- ['mq_host','mq_port','mq_user','wf_ssid','portal','vrm_user'].forEach(function(k){document.getElementById(k).value=c[k]});
+ ['name','mq_host','mq_port','mq_user','wf_ssid','portal','vrm_user'].forEach(function(k){document.getElementById(k).value=c[k]});
  document.querySelectorAll('[data-secret]').forEach(function(d){
   var k=d.dataset.secret;
   if(!c.saved[k]){d.appendChild(input(k));return}

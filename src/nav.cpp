@@ -16,6 +16,7 @@
 #include "solar_screen.h"
 #include "theme.h"
 #include "ui.h"
+#include "update_ui.h"
 #include "victron_data.h"
 
 using namespace theme;
@@ -173,6 +174,7 @@ static void onUpdate(lv_timer_t*) {
   int active = alarms_screen_update(d);
   ui_set_dim(false);
   settings_screen_update();
+  update_ui_tick(isDataPage(current));
 
   // Alarms dot (SPEC 6.2, 6.11): any device alarm or warning, or low SOC
   if (active) lv_obj_remove_flag(alarmDot, LV_OBJ_FLAG_HIDDEN);
@@ -209,6 +211,7 @@ void nav_begin() {
   lv_obj_set_style_text_letter_space(staleMarker, 1, 0);
   lv_obj_align(staleMarker, LV_ALIGN_TOP_RIGHT, -PAD, 0);
   lv_obj_add_flag(staleMarker, LV_OBJ_FLAG_HIDDEN);
+  update_ui_create(scr);
   nav_show(Page::Overview);
   onUpdate(nullptr);
   updateTimer = lv_timer_create(onUpdate, UPDATE_MS, nullptr);

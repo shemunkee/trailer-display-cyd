@@ -7,9 +7,11 @@
 #include "display.h"
 #include "mqtt_link.h"
 #include "net_config.h"
+#include "ota.h"
 #include "settings.h"
 #include "theme.h"
 #include "ui.h"
+#include "update_ui.h"
 
 using namespace theme;
 
@@ -24,6 +26,10 @@ static lv_obj_t* snoozeBtn[SNOOZE_COUNT];
 static lv_obj_t* usbBtn[2];  // Left (flipped), Right (normal)
 static lv_obj_t *modeLabel, *statusLabel;
 static lv_obj_t* menu;  // Data source menu, on the top layer while open
+static lv_obj_t *updateBtnLabel, *updateStatus;  // in the menu, while open
+static bool checkWaiting = false;  // "Check for updates" tapped, result not in yet
+static uint16_t checksAtTap = 0;
+static String displayName;  // from setup, shown in the menu so displays can be told apart
 
 // ---------- building blocks ----------
 
@@ -146,6 +152,7 @@ static lv_obj_t* stepper(lv_obj_t* page, const char* title, Step down, Step up) 
 static void closeMenu() {
   if (menu) lv_obj_delete(menu);
   menu = nullptr;
+  updateBtnLabel = updateStatus = nullptr;
 }
 
 static void runCalibration(void*) {
@@ -154,19 +161,35 @@ static void runCalibration(void*) {
   lv_display_trigger_activity(nullptr);  // don't snooze straight away
 }
 
-enum MenuAction { RUN_SETUP, RECALIBRATE, CLOSE };
+enum MenuAction { RUN_SETUP, RECALIBRATE, UPDATES, CLOSE };
+
+static bool updateReady(const OtaStatus& st) {
+  return st.state == OtaState::Available || st.state == OtaState::InstallFailed;
+}
 
 static void onMenu(lv_event_t* e) {
   intptr_t action = (intptr_t)lv_event_get_user_data(e);
+  if (action == UPDATES) {  // SPEC 5.7
+    OtaStatus st = ota_status();
+    if (updateReady(st)) {
+      closeMenu();
+      update_ui_confirm();
+    } else if (st.state != OtaState::Off && st.state != OtaState::Checking) {
+      checksAtTap = st.checksDone;
+      checkWaiting = true;
+      ota_request_check();  // the menu stays open to show the result
+    }
+    return;
+  }
   closeMenu();
   if (action == RUN_SETUP) net_config_request_setup();  // restarts into setup
   // After this event finishes, so LVGL isn't in the middle of handling the tap
   else if (action == RECALIBRATE) lv_async_call(runCalibration, nullptr);
 }
 
-static void menuButton(lv_obj_t* card, const char* text, MenuAction action) {
+static lv_obj_t* menuButton(lv_obj_t* card, const char* text, MenuAction action) {
   lv_obj_t* b = lv_button_create(card);
-  lv_obj_set_size(b, lv_pct(100), 36);
+  lv_obj_set_size(b, lv_pct(100), 32);
   lv_obj_set_style_bg_color(b, lv_color_hex(BUTTON_BG), 0);
   lv_obj_set_style_border_width(b, 1, 0);
   lv_obj_set_style_border_color(b, lv_color_hex(DIVIDER), 0);
@@ -175,6 +198,7 @@ static void menuButton(lv_obj_t* card, const char* text, MenuAction action) {
   lv_obj_t* l = ui_text(b, text, &lv_font_montserrat_14, action == CLOSE ? MUTED : TEXT);
   lv_obj_center(l);
   lv_obj_add_event_cb(b, onMenu, LV_EVENT_CLICKED, (void*)(intptr_t)action);
+  return l;
 }
 
 static void openMenu(lv_event_t*) {
@@ -202,15 +226,55 @@ static void openMenu(lv_event_t*) {
   lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_center(card);
 
-  ui_text(card, "Data source", &lv_font_montserrat_14, TEXT);
+  lv_obj_t* head = ui_text(card, "Data source", &lv_font_montserrat_14, TEXT);
+  if (!displayName.isEmpty()) {  // "Data source · Sabrina"
+    String t = "Data source " LV_SYMBOL_BULLET " " + displayName;
+    lv_label_set_text(head, t.c_str());
+    lv_obj_set_width(head, lv_pct(100));
+    lv_label_set_long_mode(head, LV_LABEL_LONG_DOT);
+  }
   menuButton(card, "Run setup", RUN_SETUP);
   menuButton(card, "Recalibrate touch", RECALIBRATE);
+  updateBtnLabel = menuButton(card, "Check for updates", UPDATES);
+  updateStatus = ui_text(card, "", &lv_font_montserrat_10, MUTED);
+  lv_obj_set_width(updateStatus, lv_pct(100));
+  lv_obj_set_style_text_align(updateStatus, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(updateStatus, LV_LABEL_LONG_WRAP);
   menuButton(card, "Close", CLOSE);
+  settings_screen_update();
+}
+
+// Version and update state under the button, while the menu is open
+static void showUpdateState() {
+  if (!menu) return;
+  OtaStatus st = ota_status();
+  if (checkWaiting && st.checksDone != checksAtTap) checkWaiting = false;
+  char btn[32], line[80];
+  if (updateReady(st)) snprintf(btn, sizeof(btn), "Install %s", st.latest);
+  else snprintf(btn, sizeof(btn), "Check for updates");
+  const char* v = ota_version();
+  if (st.state == OtaState::Checking || checkWaiting) snprintf(line, sizeof(line), "Firmware %s " LV_SYMBOL_BULLET " checking...", v);
+  else switch (st.state) {
+    case OtaState::Off: snprintf(line, sizeof(line), "Firmware %s " LV_SYMBOL_BULLET " updates not set up", v); break;
+    case OtaState::UpToDate: snprintf(line, sizeof(line), "Firmware %s " LV_SYMBOL_BULLET " up to date", v); break;
+    case OtaState::Available: snprintf(line, sizeof(line), "Firmware %s " LV_SYMBOL_BULLET " %s available", v, st.latest); break;
+    case OtaState::CheckFailed: snprintf(line, sizeof(line), "Firmware %s " LV_SYMBOL_BULLET " check failed: %s", v, st.message); break;
+    case OtaState::InstallFailed: snprintf(line, sizeof(line), "Install failed: %s", st.message); break;
+    default:
+      snprintf(line, sizeof(line), "Firmware %s%s", v, st.rolledBack ? " " LV_SYMBOL_BULLET " last update was undone" : "");
+      break;
+  }
+  ui_set_text(updateBtnLabel, btn);
+  ui_set_text(updateStatus, line);
 }
 
 // ---------- public ----------
 
 void settings_screen_create(lv_obj_t* page) {
+  NetConfig net;
+  net_config_load(net);
+  displayName = net.deviceName;
+
   lv_obj_set_flex_flow(page, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(page, ROW_GAP, 0);
 
@@ -262,4 +326,5 @@ void settings_screen_update() {
   char buf[48];
   mqtt_link_status_text(buf, sizeof(buf));
   ui_set_text(statusLabel, buf);
+  showUpdateState();
 }

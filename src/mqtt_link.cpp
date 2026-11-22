@@ -7,6 +7,7 @@
 #include <WiFiClientSecure.h>
 
 #include "net_config.h"
+#include "ota.h"
 #include "venus_ca.h"
 #include "victron_data.h"
 
@@ -102,6 +103,7 @@ void mqtt_link_status_text(char* buf, size_t len) {
     case LinkState::Joining: snprintf(buf, len, "Joining WiFi"); break;
     case LinkState::JoinFailed: snprintf(buf, len, "Couldn't join WiFi"); break;
     case LinkState::CerboNotFound: snprintf(buf, len, "Cerbo not found on WiFi"); break;
+    case LinkState::WrongCerbo: snprintf(buf, len, "Different Cerbo found (portal ID)"); break;
     case LinkState::Connecting: snprintf(buf, len, "Connecting"); break;
     case LinkState::LoginRejected: snprintf(buf, len, cloud ? "VRM token rejected" : "GX login rejected"); break;
     case LinkState::ConnectFailed:
@@ -253,7 +255,8 @@ static bool ensureWifi() {
     return false;
   }
   Serial.printf("WiFi: joined, IP %s\n", WiFi.localIP().toString().c_str());
-  if (!mdnsStarted) mdnsStarted = MDNS.begin("cyd-victron");  // needed to look up venus.local
+  // Needed to look up venus.local; our own name tells displays apart on the network
+  if (!mdnsStarted) mdnsStarted = MDNS.begin(device_hostname(cfg).c_str());
   return true;
 }
 
@@ -337,11 +340,17 @@ static bool findPortal() {
   mqtt.unsubscribe("N/+/system/0/Serial");
 
   if (!discoveredId.isEmpty()) {
+    Serial.printf("Local: discovered portal ID %s\n", mask_secret(discoveredId).c_str());
+    // Another trailer's Cerbo on the same WiFi (venus.local can find either):
+    // refuse it rather than show someone else's system (SPEC 5.4)
+    if (!cfg.portalId.isEmpty() && !cfg.portalId.equalsIgnoreCase(discoveredId)) {
+      Serial.printf("Local: that's not our Cerbo (setup has %s); not using it. If two Cerbos share this WiFi, "
+                    "put ours by IP address in setup instead of %s\n",
+                    mask_secret(cfg.portalId).c_str(), cfg.mqttHost.c_str());
+      setState(LinkState::WrongCerbo);
+      return false;
+    }
     portalId = discoveredId;
-    Serial.printf("Local: discovered portal ID %s\n", mask_secret(portalId).c_str());
-    if (!cfg.portalId.isEmpty() && cfg.portalId != portalId)
-      Serial.printf("Local: warning, setup has a different portal ID (%s); using the discovered one\n",
-                    mask_secret(cfg.portalId).c_str());
   } else if (!cfg.portalId.isEmpty()) {
     portalId = cfg.portalId;
     Serial.printf("Local: no portal ID announced, using the one from setup (%s)\n", mask_secret(portalId).c_str());
@@ -431,14 +440,21 @@ static void netTask(void*) {
       if (millis() - lastKeepalive > KEEPALIVE_MS) sendKeepalive(false);
       if (millis() - lastUnseenReport > UNSEEN_REPORT_MS) reportUnseen(false);
       if (shouldSwitchToLocal()) break;
+      if (ota_work_due()) break;  // update check or install: needs the memory MQTT's TLS uses
       vTaskDelay(pdMS_TO_TICKS(2));
     }
     bool wifiUp = WiFi.status() == WL_CONNECTED;
-    if (mqtt.connected() && wifiUp) Serial.println("Cloud: disconnecting");
+    if (mqtt.connected() && wifiUp)
+      Serial.printf("%s: closing the MQTT session\n", mode == LinkMode::Cloud ? "Cloud" : "Local");
     else Serial.printf("%s: connection lost%s\n", mode == LinkMode::Cloud ? "Cloud" : "Local",
                        wifiUp ? "" : " (WiFi dropped)");
     mqtt.disconnect();
     if (!wifiUp) WiFi.disconnect(true);
+    // SPEC 5.7: with MQTT closed and the WiFi still up, check for or install an update
+    if (wifiUp && ota_work_due()) {
+      setState(LinkState::Connecting);
+      ota_run();  // restarts the board after a successful install
+    }
   }
 }
 

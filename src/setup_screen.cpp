@@ -38,12 +38,15 @@ static void qrCard(lv_obj_t* scr, int x, int w, const char* step, const String& 
   lv_obj_align(l2, LV_ALIGN_TOP_MID, 0, 20 + QR_SIZE + 2 * QR_BORDER + 22);
 }
 
-void setup_screen_create(const char* ssid, const char* pass, const char* url, void (*onCancel)()) {
+void setup_screen_create(const char* name, const char* ssid, const char* pass, const char* url, void (*onCancel)()) {
   lv_obj_t* scr = lv_screen_active();
   lv_obj_set_style_bg_color(scr, lv_color_hex(BG), 0);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
-  title = ui_text(scr, "Setup", &lv_font_montserrat_18, TEXT);
+  String t = name && name[0] ? String("Setup: ") + name : String("Setup");
+  title = ui_text(scr, t.c_str(), &lv_font_montserrat_18, TEXT);
+  lv_obj_set_width(title, SCREEN_W - 2 * PAD - (onCancel ? 80 : 0));
+  lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
   lv_obj_set_pos(title, PAD, PAD + 3);
 
   cancelCb = onCancel;

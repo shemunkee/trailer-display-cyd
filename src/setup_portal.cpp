@@ -11,7 +11,6 @@
 #include "setup_page.h"
 #include "setup_screen.h"
 
-static constexpr const char* AP_SSID = "Victron_CYD";
 static constexpr const char* AP_URL = "http://192.168.4.1";
 static const IPAddress AP_IP(192, 168, 4, 1);
 static constexpr int PASS_LEN = 10;
@@ -21,6 +20,7 @@ static DNSServer dns;
 static WebServer server(80);
 static NetConfig cfg;
 static char apPass[PASS_LEN + 1];
+static String apSsid;  // Victron_CYD_<name>, or Victron_CYD_<id> before naming (SPEC 6.9)
 static uint32_t restartAt = 0;
 
 // The setup password is made once per device and kept in NVS (net/ap_pass), so
@@ -71,7 +71,8 @@ static void handleRoot() { server.send_P(200, "text/html", SETUP_PAGE); }
 // Non-secret values to prefill, and only a saved/not-saved flag for secrets
 static void handleConfig() {
   String j = "{";
-  j += "\"mq_host\":" + jsonString(cfg.mqttHost);
+  j += "\"name\":" + jsonString(cfg.deviceName);
+  j += ",\"mq_host\":" + jsonString(cfg.mqttHost);
   j += ",\"mq_port\":\"" + String(cfg.mqttPort) + "\"";
   j += ",\"mq_user\":" + jsonString(cfg.mqttUser);
   j += ",\"wf_ssid\":" + jsonString(cfg.wifiSsid);
@@ -101,6 +102,7 @@ static void takeSecret(const char* name, String& dest) {
 
 static void handleSave() {
   NetConfig next = cfg;
+  next.deviceName = field("name");
   next.mqttHost = field("mq_host");
   next.mqttUser = field("mq_user");
   next.wifiSsid = field("wf_ssid");
@@ -118,6 +120,8 @@ static void handleSave() {
   if (next.mqttHost.isEmpty()) next.mqttHost = DEFAULT_MQTT_HOST;
   if (port < 1 || port > 65535) errors += "<p class=\"err\">Cerbo port must be between 1 and 65535.</p>";
   else next.mqttPort = port;
+  if (!device_name_valid(next.deviceName))
+    errors += "<p class=\"err\">The display name can be up to 20 letters, digits, spaces or dashes.</p>";
   if (!net_config_has_network(next)) errors += "<p class=\"err\">Enter the trailer WiFi.</p>";
   if (next.wifiSsid.length() > 32) errors += "<p class=\"err\">The WiFi name can be at most 32 characters.</p>";
   if (!next.wifiPass.isEmpty() && next.wifiPass.length() < 8)
@@ -165,8 +169,9 @@ void setup_portal_begin(bool canCancel) {
   delay(100);
   loadOrMakePassword();
   WiFi.softAPConfig(AP_IP, AP_IP, IPAddress(255, 255, 255, 0));
-  WiFi.softAP(AP_SSID, apPass);
-  Serial.printf("Setup: network %s open at %s (password on screen)\n", AP_SSID, AP_URL);
+  apSsid = setup_ssid(cfg);
+  WiFi.softAP(apSsid.c_str(), apPass);
+  Serial.printf("Setup: network %s open at %s (password on screen)\n", apSsid.c_str(), AP_URL);
 
   dns.setErrorReplyCode(DNSReplyCode::NoError);
   dns.start(53, "*", AP_IP);
@@ -177,7 +182,7 @@ void setup_portal_begin(bool canCancel) {
   server.onNotFound(handleRedirect);
   server.begin();
 
-  setup_screen_create(AP_SSID, apPass, AP_URL, canCancel ? cancel : nullptr);
+  setup_screen_create(cfg.deviceName.c_str(), apSsid.c_str(), apPass, AP_URL, canCancel ? cancel : nullptr);
 }
 
 void setup_portal_loop() {

@@ -10,6 +10,7 @@
 #include "mqtt_link.h"
 #include "nav.h"
 #include "net_config.h"
+#include "ota.h"
 #include "settings.h"
 #include "setup_portal.h"
 #include "snooze.h"
@@ -21,6 +22,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\nCYD Victron display starting");
 
+  ota_begin();
   settings_load();
   NetConfig net;
   net_config_load(net);
@@ -56,6 +58,7 @@ void setup() {
 
 void loop() {
   lv_timer_handler();
+  ota_loop();
   if (setupMode) setup_portal_loop();
   delay(5);
 }

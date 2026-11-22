@@ -11,3 +11,6 @@ desktop.ini
 
 # Serial logs from pio device monitor --filter log2file
 logs/
+
+# OTA release files made by tools/make_release.py (they go on GitHub releases, not in git)
+dist/

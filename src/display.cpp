@@ -20,7 +20,9 @@ static lv_display_t* disp = nullptr;
 
 // One partial buffer, 20 lines (12.8 KB). No PSRAM, so keep it small.
 static constexpr int BUF_LINES = 20;
-static uint16_t drawBuf[SCREEN_W * BUF_LINES];
+// Allocated at start-up rather than static: the static RAM region is full
+static constexpr size_t BUF_BYTES = SCREEN_W * BUF_LINES * 2;
+static uint16_t* drawBuf = nullptr;
 
 static constexpr uint32_t BL_PWM_HZ = 5000;
 static constexpr uint8_t BL_PWM_BITS = 8;
@@ -65,7 +67,8 @@ void display_lvgl_begin() {
   lv_tick_set_cb(tick);
   disp = lv_display_create(SCREEN_W, SCREEN_H);
   lv_display_set_flush_cb(disp, flush);
-  lv_display_set_buffers(disp, drawBuf, nullptr, sizeof(drawBuf), LV_DISPLAY_RENDER_MODE_PARTIAL);
+  drawBuf = (uint16_t*)heap_caps_malloc(BUF_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+  lv_display_set_buffers(disp, drawBuf, nullptr, BUF_BYTES, LV_DISPLAY_RENDER_MODE_PARTIAL);
 }
 
 void display_set_brightness(uint8_t pct) {

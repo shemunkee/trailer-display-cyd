@@ -17,6 +17,7 @@ enum class LinkState : uint8_t {
   Joining,
   JoinFailed,
   CerboNotFound,   // local: the Cerbo address didn't resolve (and no cloud to fall back on)
+  WrongCerbo,      // local: a Cerbo answered, but its portal ID isn't the one in setup
   Connecting,
   LoginRejected,   // local: GX login refused; cloud: VRM token rejected
   ConnectFailed,
