@@ -60,7 +60,7 @@ void battery_screen_update(const VictronData& d) {
     if (lv_bar_get_value(socBar) != v) lv_bar_set_value(socBar, v, LV_ANIM_OFF);
   }
   ui_set_color(socValue, low ? WARN : TEXT);
-  lv_color_t barColor = lv_color_hex(low ? WARN : charging ? CHARGE : TEXT);
+  lv_color_t barColor = lv_color_hex(ui_color(low ? WARN : charging ? CHARGE : TEXT));
   if (!lv_color_eq(lv_obj_get_style_bg_color(socBar, LV_PART_INDICATOR), barColor))
     lv_obj_set_style_bg_color(socBar, barColor, LV_PART_INDICATOR);
 
@@ -69,6 +69,8 @@ void battery_screen_update(const VictronData& d) {
   ui_set_color(stateLabel, charging ? CHARGE : d.battWatts < 0 ? TEXT : MUTED);
 
   // Rows
+  ui_set_color(volts, TEXT);
+  ui_set_color(consumed, TEXT);
   if (isnan(d.battVolts)) ui_set_text(volts, "--");
   else {
     snprintf(buf, sizeof(buf), "%.1f V", d.battVolts);

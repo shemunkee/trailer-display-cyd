@@ -87,6 +87,9 @@ static void showCard(Card& k, const MpptData* m, int slot) {
   }
   ui_fmt_watts(buf, sizeof(buf), m->power);
   ui_set_text(k.watts, buf);
+  ui_set_color(k.watts, SOLAR);
+  ui_set_color(k.pv, TEXT);
+  ui_set_color(k.today, TEXT);
   if (isnan(m->pvVolts)) ui_set_text(k.pv, "--");
   else {
     snprintf(buf, sizeof(buf), "%.1f V", m->pvVolts);
@@ -105,6 +108,7 @@ void solar_screen_update(const VictronData& d) {
   char buf[24];
   ui_fmt_watts(buf, sizeof(buf), d.pvWatts);
   ui_set_text(total, buf);
+  ui_set_color(total, SOLAR);
 
   const MpptData* placed[2] = {mppt_by_name(d, NAMES[0]), mppt_by_name(d, NAMES[1])};
   if (placed[0] == placed[1]) placed[1] = nullptr;  // one name containing both words

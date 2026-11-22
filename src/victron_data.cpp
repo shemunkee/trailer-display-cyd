@@ -83,10 +83,16 @@ void victron_data_on_message(const char* path, const uint8_t* payload, unsigned 
   char service[16];
   int inst;
   const char* rest;
-  if (!split(path, service, sizeof(service), inst, rest)) return;
+  if (!split(path, service, sizeof(service), inst, rest)) {
+    portENTER_CRITICAL(&mux);
+    data.lastMessageMs = millis() | 1;
+    portEXIT_CRITICAL(&mux);
+    return;
+  }
 
   int group = -1;
   portENTER_CRITICAL(&mux);
+  data.lastMessageMs = millis() | 1;
   if (!strcmp(service, "system")) {
     if (!strcmp(rest, "Dc/Battery/Soc")) setNum(data.soc, v), group = GROUP_BATTERY;
     else if (!strcmp(rest, "Dc/Battery/Voltage")) setNum(data.battVolts, v), group = GROUP_BATTERY;

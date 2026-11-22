@@ -79,9 +79,14 @@ void ac_screen_update(const VictronData& d) {
   ui_set_color(in.r1, live ? TEXT : MUTED);
   ui_set_color(in.r2, live ? TEXT : MUTED);
   showNum(in.r3, d.inputLimitAmps, "%.0f A");
+  ui_set_color(in.r3, TEXT);
 
   ui_fmt_watts(buf, sizeof(buf), d.loadWatts);
   ui_set_text(out.big, buf);
+  ui_set_color(out.big, AC);
+  ui_set_color(out.r1, TEXT);
+  ui_set_color(out.r2, TEXT);
+  ui_set_color(out.r3, TEXT);
   showNum(out.r1, d.acOutVolts, "%.0f V");
   showNum(out.r2, d.acOutAmps, "%.1f A");
   showNum(out.r3, d.acOutHz, "%.0f Hz");

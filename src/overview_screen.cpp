@@ -118,7 +118,7 @@ static void updateRing(const VictronData& d) {
     ui_set_text(socLabel, buf);
     if (lv_arc_get_value(ring) != (int)(d.soc + 0.5f)) lv_arc_set_value(ring, (int)(d.soc + 0.5f));
   }
-  lv_color_t ringColor = lv_color_hex(color);
+  lv_color_t ringColor = lv_color_hex(ui_color(color));
   if (!lv_color_eq(lv_obj_get_style_arc_color(ring, LV_PART_INDICATOR), ringColor))
     lv_obj_set_style_arc_color(ring, ringColor, LV_PART_INDICATOR);
   ui_set_color(socLabel, low ? WARN : TEXT);
@@ -137,6 +137,7 @@ static void updateSolar(const VictronData& d) {
   char buf[24];
   ui_fmt_watts(buf, sizeof(buf), d.pvWatts);
   ui_set_text(solar.value, buf);
+  ui_set_color(solar.value, SOLAR);
   float kwh = 0;
   bool any = false;
   for (const MpptData& m : d.mppt)
@@ -149,6 +150,7 @@ static void updateLoads(const VictronData& d) {
   char buf[24];
   ui_fmt_watts(buf, sizeof(buf), d.loadWatts);
   ui_set_text(loads.value, buf);
+  ui_set_color(loads.value, AC);
   if (isnan(d.acOutAmps)) ui_set_text(loads.sub, "");
   else {
     snprintf(buf, sizeof(buf), "%.1f A", d.acOutAmps);

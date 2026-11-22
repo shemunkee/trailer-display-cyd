@@ -8,6 +8,11 @@ lv_obj_t* ui_card(lv_obj_t* parent, int x, int y, int w, int h);
 lv_obj_t* ui_text(lv_obj_t* parent, const char* s, const lv_font_t* font, uint32_t color);
 lv_obj_t* ui_button(lv_obj_t* parent, const char* label, int x, int y, int w, int h);
 
+// Stale data (SPEC 5.6): while dimmed, every color set through ui_color() or
+// ui_set_color() comes out muted, so the last known values show greyed
+void ui_set_dim(bool dim);
+uint32_t ui_color(uint32_t color);
+
 // Only touch a label when its text or color changes, so the panel isn't redrawn every tick
 void ui_set_text(lv_obj_t* label, const char* s);
 void ui_set_color(lv_obj_t* label, uint32_t color);

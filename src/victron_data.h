@@ -36,6 +36,7 @@ struct VictronData {
   int vebusState = -1;
 
   uint32_t updatedMs[GROUP_COUNT] = {};  // millis() of the last value per group, 0 = never
+  uint32_t lastMessageMs = 0;            // millis() of the last message of any kind, 0 = never (SPEC 5.6)
 };
 
 // Net task: path is relative to N/<portalId>/; payload is {"value": ...} or empty

@@ -41,12 +41,17 @@ lv_obj_t* ui_button(lv_obj_t* parent, const char* label, int x, int y, int w, in
   return b;
 }
 
+static bool dimmed = false;
+
+void ui_set_dim(bool dim) { dimmed = dim; }
+uint32_t ui_color(uint32_t c) { return dimmed ? MUTED : c; }
+
 void ui_set_text(lv_obj_t* l, const char* s) {
   if (strcmp(lv_label_get_text(l), s) != 0) lv_label_set_text(l, s);
 }
 
 void ui_set_color(lv_obj_t* l, uint32_t c) {
-  lv_color_t col = lv_color_hex(c);
+  lv_color_t col = lv_color_hex(ui_color(c));
   if (!lv_color_eq(lv_obj_get_style_text_color(l, 0), col)) lv_obj_set_style_text_color(l, col, 0);
 }
 

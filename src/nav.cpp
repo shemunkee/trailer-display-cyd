@@ -1,10 +1,12 @@
 #include "nav.h"
 
 #include <Arduino.h>
+#include <string.h>
 
 #include "ac_screen.h"
 #include "battery_screen.h"
 #include "board.h"
+#include "mqtt_link.h"
 #include "nav_icons.h"
 #include "overview_screen.h"
 #include "settings.h"
@@ -17,6 +19,7 @@
 using namespace theme;
 
 static constexpr uint32_t UPDATE_MS = 500;
+static constexpr uint32_t STALE_MS = 30000;  // SPEC 5.6
 static constexpr int PAGE_COUNT = (int)Page::Count;
 
 struct NavButton {
@@ -28,6 +31,8 @@ struct NavButton {
 static lv_obj_t* pages[PAGE_COUNT];
 static NavButton buttons[PAGE_COUNT];
 static lv_obj_t* alarmDot;
+static lv_obj_t* staleMarker;  // NO CONNECTION / STALE / NO DATA, top right on data screens
+static const char* staleText = nullptr;
 static lv_image_dsc_t iconDsc[PAGE_COUNT];
 static Page current = Page::Overview;
 
@@ -37,8 +42,20 @@ static const uint8_t* const ICON_DATA[PAGE_COUNT] = {
 static const char* const PAGE_NAMES[PAGE_COUNT] = {"Overview", "Battery", "Solar", "AC / Quattro", "Alarms",
                                                    "Settings"};
 
+static bool isDataPage(Page p) { return p != Page::Settings && p != Page::Alarms; }
+
+static void showMarker() {
+  if (staleText && isDataPage(current)) {
+    if (strcmp(lv_label_get_text(staleMarker), staleText)) lv_label_set_text(staleMarker, staleText);
+    lv_obj_remove_flag(staleMarker, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(staleMarker, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 void nav_show(Page p) {
   current = p;
+  showMarker();
   for (int i = 0; i < PAGE_COUNT; i++) {
     bool on = i == (int)p;
     if (on) lv_obj_remove_flag(pages[i], LV_OBJ_FLAG_HIDDEN);
@@ -129,13 +146,30 @@ static void buildBar(lv_obj_t* scr) {
   lv_obj_add_flag(alarmDot, LV_OBJ_FLAG_HIDDEN);
 }
 
+// Whole-system freshness (SPEC 5.6): the Cerbo only sends a value when it
+// changes, so a steady group (shore at 0 W, Quattro state) goes quiet while
+// still correct. Data counts as fresh while the link is up and anything at all
+// arrived in the last 30 s; battery voltage and current change every second or two.
+static const char* staleState(const VictronData& d) {
+  LinkStatus ls = mqtt_link_status();
+  bool linked = ls.state == LinkState::Live || ls.state == LinkState::Loading;
+  if (!linked) return "NO CONNECTION";
+  if (!d.lastMessageMs) return ls.state == LinkState::Live ? "NO DATA" : nullptr;
+  if (millis() - d.lastMessageMs > STALE_MS) return "STALE";
+  return nullptr;
+}
+
 static void onUpdate(lv_timer_t*) {
   VictronData d;
   victron_data_get(d);
+  staleText = staleState(d);
+  showMarker();
+  ui_set_dim(staleText != nullptr);
   overview_screen_update(d);
   battery_screen_update(d);
   solar_screen_update(d);
   ac_screen_update(d);
+  ui_set_dim(false);
   settings_screen_update();
   // Alarms dot (SPEC 6.11): low SOC for now; device alarms come in item 13
   bool alarm = !isnan(d.soc) && d.soc <= settings_get().lowSocPct;
@@ -159,6 +193,11 @@ void nav_begin() {
   placeholder(pages[(int)Page::Alarms], PAGE_NAMES[(int)Page::Alarms]);
 
   buildBar(scr);
+  // In the top padding, so it covers nothing; on the screen so it isn't dimmed
+  staleMarker = ui_text(scr, "", &lv_font_montserrat_10, WARN);
+  lv_obj_set_style_text_letter_space(staleMarker, 1, 0);
+  lv_obj_align(staleMarker, LV_ALIGN_TOP_RIGHT, -PAD, 0);
+  lv_obj_add_flag(staleMarker, LV_OBJ_FLAG_HIDDEN);
   nav_show(Page::Overview);
   onUpdate(nullptr);
   lv_timer_create(onUpdate, UPDATE_MS, nullptr);

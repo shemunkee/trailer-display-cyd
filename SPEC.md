@@ -73,7 +73,7 @@ Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance 
 1. On boot, try local mode (scan for the hotspot SSID, try to connect for up to about 15s)
 2. If that fails, try cloud mode. (Built: each connection attempt scans once, uses the hotspot if it's in range, otherwise the trailer WiFi. Losing the connection starts a new attempt.)
 3. While in cloud mode, scan for the hotspot every 2 minutes. If it's found, switch to local. The scan runs without dropping the cloud connection. If the hotspot is in range but local fails (it falls back to cloud), each failure doubles the wait between rescans, up to 30 minutes, so a hotspot without a working broker doesn't keep knocking cloud offline. A working local connection resets it to 2 minutes.
-4. If neither works, show the last known values greyed out with a "No connection" status, and keep retrying
+4. If neither works, show the last known values greyed out with a "No connection" status, and keep retrying (built with item 11, see 5.6)
 5. Show the current source (Local or Cloud) on the Settings screen Data source row
 
 ### 5.4 MQTT details (both modes)
@@ -112,8 +112,16 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 
 ### 5.6 Stale data
 
-* If no update arrives for a value group for 30s, show that group greyed with a small "stale" marker
 * Never show frozen numbers as if they're live
+* **Decision (2026-11-22, for now):** freshness is judged for the whole system, not per group. Data is fresh while the link is up (loading or live) and any message arrived in the last 30s. Otherwise every data screen (Overview, Battery, Solar, AC) keeps the last known values but shows them in grey, with an amber marker top right:
+  * `NO CONNECTION`: the link is down or reconnecting
+  * `STALE`: connected, but nothing arrived for 30s
+  * `NO DATA`: connected and live, but nothing has ever arrived (for example a wrong portal ID)
+* Why not per group, as first planned (grey a group after 30s without an update): the Cerbo only publishes a value when it changes, and the keepalive suppresses republishing (5.4). Steady groups such as shore at 0 W, the Quattro state, or solar at night would go grey while still correct. Battery voltage and current change every second or two, so silence across the whole system means data really stopped. (To confirm in item 5.)
+* Rejected alternative: keep the per-group rule and send a full keepalive (no `suppress-republish`) every 30s so everything is resent. It works, but each one republishes every value the Cerbo has, which in cloud mode goes over the trailer's internet every 30s.
+* Per-group update times are still kept in the data layer (`updatedMs`), in case we revisit this.
+* A device that goes away (empty payload) or a null value shows `--`, not a greyed number.
+* Settings and Alarms aren't greyed; Settings shows the connection status itself.
 
 ## 6. Screens
 
@@ -260,7 +268,7 @@ All settings saved in NVS.
 - [x] Overview screen, including Shore/Generator last used (still to check on the device with live data)
 - [ ] Battery, Solar, AC, Alarms, Settings screens (Battery, Solar, AC and Settings built, still to check on the device; Alarms comes with item 13)
 - [ ] Bottom nav and alarm dot (nav built; the dot shows low SOC only until item 13)
-- [ ] Stale data handling
+- [x] Stale data handling (whole-system freshness, see 5.6; still to check on the device)
 - [x] Snooze with logo (still to check on the device)
 - [ ] Low SOC and alarm alerts
 - [ ] On device check: nothing cut off, all text readable
@@ -283,3 +291,4 @@ All settings saved in NVS.
 | 2026-11-22 | Item 7 built: while on cloud, a background scan every 2 minutes looks for the hotspot and switches to local when it's in range. Failed local attempts with the hotspot visible back the rescan off (2, 4, 8, 16, then 30 min max). |
 | 2026-11-22 | Item 8 built, and Settings plus the bottom nav from items 9-10. New data layer (`src/victron_data.*`): the MQTT task parses each 5.5 value into one shared set, with a last-update time per group (battery, solar, AC, Quattro) for item 11; MPPTs are kept by instance and carry their CustomName. Overview, Settings and the nav follow the mockups (details in 6.1-6.3, 6.8). The demo screen is gone; the device boots into Overview. Fonts: Montserrat 24 added for the SOC ring, 40 dropped. Flash use 50%. |
 | 2026-11-22 | Battery, Solar and AC / Quattro screens built from the mockups (details in 6.4-6.6). MPPT cards are matched by CustomName, with a fallback for unmatched names. Added AC input voltage (`vebus/<inst>/Ac/ActiveIn/L1/V`) to 5.5 and the subscriptions, unverified like the rest. Montserrat 36 added. LVGL heap 48 KB to 56 KB, with its use logged at boot. Shared row and label helpers moved to `src/ui.cpp`. Flash use 52%, static RAM 37%. |
+| 2026-11-22 | Item 11 built, with a change of plan logged in 5.6: freshness is judged for the whole system (link up and any message in the last 30s) instead of per value group, because the Cerbo only publishes on change and steady groups would grey out falsely. The rejected alternative (a full republish every 30s) would cost cloud data. Stale or disconnected data stays on screen in grey with an amber NO CONNECTION / STALE / NO DATA marker. Chosen by Sabrina "for now"; revisit after item 5 if needed. |
