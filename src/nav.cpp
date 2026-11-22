@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "ac_screen.h"
+#include "alarms_screen.h"
 #include "battery_screen.h"
 #include "board.h"
 #include "mqtt_link.h"
@@ -11,6 +12,7 @@
 #include "overview_screen.h"
 #include "settings.h"
 #include "settings_screen.h"
+#include "snooze.h"
 #include "solar_screen.h"
 #include "theme.h"
 #include "ui.h"
@@ -39,10 +41,10 @@ static Page current = Page::Overview;
 static const uint8_t* const ICON_DATA[PAGE_COUNT] = {
     nav_icon_home, nav_icon_battery, nav_icon_solar, nav_icon_ac, nav_icon_alarms, nav_icon_settings,
 };
-static const char* const PAGE_NAMES[PAGE_COUNT] = {"Overview", "Battery", "Solar", "AC / Quattro", "Alarms",
-                                                   "Settings"};
+static uint32_t alarmSerialSeen = 0;  // newest device alarm we've already jumped to
 
-static bool isDataPage(Page p) { return p != Page::Settings && p != Page::Alarms; }
+// Every screen but Settings shows data, so greys out when it's stale (SPEC 5.6)
+static bool isDataPage(Page p) { return p != Page::Settings; }
 
 static void showMarker() {
   if (staleText && isDataPage(current)) {
@@ -78,14 +80,6 @@ static lv_obj_t* makePage(lv_obj_t* scr) {
   lv_obj_remove_flag(p, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(p, LV_OBJ_FLAG_HIDDEN);
   return p;
-}
-
-// Alarms comes with checklist item 13
-static void placeholder(lv_obj_t* page, const char* name) {
-  lv_obj_t* l = ui_text(page, name, &lv_font_montserrat_14, TEXT);
-  lv_obj_align(l, LV_ALIGN_CENTER, 0, -10);
-  lv_obj_t* s = ui_text(page, "Coming soon", &lv_font_montserrat_12, MUTED);
-  lv_obj_align(s, LV_ALIGN_CENTER, 0, 10);
 }
 
 static void buildBar(lv_obj_t* scr) {
@@ -169,12 +163,22 @@ static void onUpdate(lv_timer_t*) {
   battery_screen_update(d);
   solar_screen_update(d);
   ac_screen_update(d);
+  int active = alarms_screen_update(d);
   ui_set_dim(false);
   settings_screen_update();
-  // Alarms dot (SPEC 6.11): low SOC for now; device alarms come in item 13
-  bool alarm = !isnan(d.soc) && d.soc <= settings_get().lowSocPct;
-  if (alarm) lv_obj_remove_flag(alarmDot, LV_OBJ_FLAG_HIDDEN);
+
+  // Alarms dot (SPEC 6.2, 6.11): any device alarm or warning, or low SOC
+  if (active) lv_obj_remove_flag(alarmDot, LV_OBJ_FLAG_HIDDEN);
   else lv_obj_add_flag(alarmDot, LV_OBJ_FLAG_HIDDEN);
+
+  // A new (or worse) device alarm wakes the screen and shows Alarms, once per
+  // alarm (SPEC 6.11). Low SOC only turns amber and shows the dot.
+  if (d.alarmSerial != alarmSerialSeen) {
+    alarmSerialSeen = d.alarmSerial;
+    Serial.println("Alarms: new device alarm, showing Alarms");
+    snooze_wake();
+    nav_show(Page::Alarms);
+  }
 }
 
 void nav_begin() {
@@ -190,7 +194,7 @@ void nav_begin() {
   solar_screen_create(pages[(int)Page::Solar]);
   ac_screen_create(pages[(int)Page::Ac]);
   settings_screen_create(pages[(int)Page::Settings]);
-  placeholder(pages[(int)Page::Alarms], PAGE_NAMES[(int)Page::Alarms]);
+  alarms_screen_create(pages[(int)Page::Alarms]);
 
   buildBar(scr);
   // In the top padding, so it covers nothing; on the screen so it isn't dimmed

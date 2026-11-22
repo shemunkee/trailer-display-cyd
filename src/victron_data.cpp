@@ -1,6 +1,7 @@
 #include "victron_data.h"
 
 #include <Arduino.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -75,6 +76,42 @@ static MpptData* mpptSlot(int instance) {
   return nullptr;  // more chargers than slots; ignore the extra ones
 }
 
+static int levelOf(const Value& v) { return v.present && !v.isString && !isnan(v.num) ? (int)v.num : 0; }
+
+// level 0 clears; anything else adds or updates (SPEC 6.7)
+static void setAlarm(AlarmDevice dev, int inst, const char* name, int variant, int level, int code) {
+  AlarmEntry* e = nullptr;
+  for (auto& a : data.alarms)
+    if (a.used && a.device == dev && a.instance == inst && !strcmp(a.name, name)) e = &a;
+  if (level <= 0) {
+    if (!e) return;
+    e->variantLevel[variant] = 0;
+    e->level = max(e->variantLevel[0], e->variantLevel[1]);
+    if (!e->level) e->used = false;
+    return;
+  }
+  if (level > 2) level = 2;
+  if (!e) {
+    for (auto& a : data.alarms)
+      if (!a.used) {
+        e = &a;
+        break;
+      }
+    if (!e) return;  // table full; the dot still shows the others
+    *e = AlarmEntry();
+    e->used = true;
+    e->device = dev;
+    e->instance = inst;
+    strlcpy(e->name, name, sizeof(e->name));
+    e->sinceMs = millis();
+  }
+  uint8_t before = e->level;
+  e->variantLevel[variant] = level;
+  e->level = max(e->variantLevel[0], e->variantLevel[1]);
+  e->code = code;
+  if (e->level > before) e->serial = ++data.alarmSerial;  // new, or a warning became an alarm
+}
+
 static void setNum(float& field, const Value& v) { field = v.present && !v.isString ? v.num : NAN; }
 static void setCode(int& field, const Value& v) { field = v.present && !v.isString ? (int)v.num : -1; }
 
@@ -106,6 +143,7 @@ void victron_data_on_message(const char* path, const uint8_t* payload, unsigned 
     else if (!strcmp(rest, "Ac/Consumption/L1/Power")) setNum(data.loadWatts, v), group = GROUP_AC;
   } else if (!strcmp(service, "battery")) {
     if (!strcmp(rest, "ConsumedAmphours")) setNum(data.consumedAh, v), group = GROUP_BATTERY;
+    else if (!strncmp(rest, "Alarms/", 7)) setAlarm(AlarmDevice::Battery, inst, rest + 7, 0, levelOf(v), 0);
   } else if (!strcmp(service, "solarcharger")) {
     MpptData* m = mpptSlot(inst);
     if (m) {
@@ -115,7 +153,10 @@ void victron_data_on_message(const char* path, const uint8_t* payload, unsigned 
       else if (!strcmp(rest, "Pv/V")) setNum(m->pvVolts, v);
       else if (!strcmp(rest, "History/Daily/0/Yield")) setNum(m->yieldTodayKwh, v);
       else if (!strcmp(rest, "State")) setCode(m->state, v);
-      else if (!strcmp(rest, "ErrorCode")) setCode(m->errorCode, v);
+      else if (!strcmp(rest, "ErrorCode")) {
+        setCode(m->errorCode, v);
+        setAlarm(AlarmDevice::Mppt, inst, "ErrorCode", 0, m->errorCode > 0 ? 2 : 0, m->errorCode);
+      }
       else group = -1;
     }
   } else if (!strcmp(service, "vebus")) {
@@ -125,8 +166,13 @@ void victron_data_on_message(const char* path, const uint8_t* payload, unsigned 
     else if (!strcmp(rest, "Ac/Out/L1/F")) setNum(data.acOutHz, v), group = GROUP_AC;
     else if (!strcmp(rest, "Ac/ActiveIn/CurrentLimit")) setNum(data.inputLimitAmps, v), group = GROUP_QUATTRO;
     else if (!strcmp(rest, "State")) setCode(data.vebusState, v), group = GROUP_QUATTRO;
+    else if (!strncmp(rest, "Alarms/", 7)) {
+      const char* name = rest + 7;
+      int variant = 0;
+      if (!strncmp(name, "L1/", 3)) name += 3, variant = 1;
+      setAlarm(AlarmDevice::Quattro, inst, name, variant, levelOf(v), 0);
+    }
   }
-  // Alarms (vebus/battery Alarms/*) are read in checklist item 13
   if (group >= 0) data.updatedMs[group] = millis() | 1;  // never 0, which means "never"
   portEXIT_CRITICAL(&mux);
 }
@@ -186,4 +232,92 @@ const MpptData* mppt_by_name(const VictronData& d, const char* name) {
   for (const MpptData& m : d.mppt)
     if (mppt_name_matches(&m, name)) return &m;
   return nullptr;
+}
+
+// ---------- alarm text ----------
+
+struct NameText {
+  const char* name;
+  const char* text;
+};
+
+// Names whose split-up words would read badly; the rest are split automatically
+static const NameText ALARM_NAMES[] = {
+    {"LowSoc", "Low state of charge"},
+    {"Ripple", "High DC ripple"},
+    {"GridLost", "AC input lost"},
+    {"MidVoltage", "Midpoint voltage"},
+    {"BmsConnectionLost", "BMS connection lost"},
+    {"BmsPreAlarm", "BMS pre-alarm"},
+    {"HighDcCurrent", "High DC current"},
+    {"HighDcVoltage", "High DC voltage"},
+    {"Alarm", "Battery alarm"},
+};
+
+// solarcharger ErrorCode numbers (Victron MPPT error codes), the common ones
+static const struct {
+  int code;
+  const char* text;
+} MPPT_ERRORS[] = {
+    {1, "Battery temperature too high"},
+    {2, "Battery voltage too high"},
+    {3, "Remote temp sensor failure"},
+    {4, "Remote temp sensor failure"},
+    {5, "Remote temp sensor lost"},
+    {6, "Remote voltage sense failure"},
+    {7, "Remote voltage sense failure"},
+    {8, "Remote voltage sense lost"},
+    {11, "Battery high ripple voltage"},
+    {14, "Battery temperature too low"},
+    {17, "Charger temperature too high"},
+    {18, "Charger over current"},
+    {19, "Charger current reversed"},
+    {20, "Bulk time limit exceeded"},
+    {21, "Current sensor issue"},
+    {26, "Terminals overheated"},
+    {28, "Power stage issue"},
+    {33, "PV input over voltage"},
+    {34, "PV input over current"},
+    {67, "BMS connection lost"},
+    {114, "CPU temperature too high"},
+};
+
+// "HighStarterVoltage" -> "High starter voltage"
+static void splitWords(const char* in, char* out, size_t len) {
+  size_t n = 0;
+  for (size_t i = 0; in[i] && n + 2 < len; i++) {
+    char c = in[i];
+    if (i > 0 && isupper((unsigned char)c)) {
+      out[n++] = ' ';
+      c = tolower((unsigned char)c);
+    }
+    if (c == '/') c = ' ';
+    out[n++] = c;
+  }
+  out[n] = 0;
+}
+
+void alarm_text(const VictronData& d, const AlarmEntry& a, char* msg, size_t msgLen, char* dev, size_t devLen) {
+  switch (a.device) {
+    case AlarmDevice::Quattro: strlcpy(dev, "Quattro", devLen); break;
+    case AlarmDevice::Battery: strlcpy(dev, "SmartShunt", devLen); break;
+    case AlarmDevice::Mppt: {
+      strlcpy(dev, "MPPT", devLen);
+      for (const MpptData& m : d.mppt)
+        if (m.instance == a.instance && m.name[0]) strlcpy(dev, m.name, devLen);
+      break;
+    }
+  }
+  if (a.device == AlarmDevice::Mppt) {
+    snprintf(msg, msgLen, "Error %d", a.code);
+    for (const auto& e : MPPT_ERRORS)
+      if (e.code == a.code) strlcpy(msg, e.text, msgLen);
+    return;
+  }
+  for (const NameText& n : ALARM_NAMES)
+    if (!strcmp(n.name, a.name)) {
+      strlcpy(msg, n.text, msgLen);
+      return;
+    }
+  splitWords(a.name, msg, msgLen);
 }

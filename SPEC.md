@@ -1,6 +1,6 @@
 # CYD Victron Display: Build Spec
 
-**Status:** v1 in progress (checklist items 1-4, 6-8 and 12 built; 9 and 10 in part)
+**Status:** v1 in progress (checklist items 1-4 and 6-13 built; 5 and 14 need the live system and the device)
 **Owner:** Sabrina
 **Last updated:** 2026-11-22
 
@@ -108,12 +108,12 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 | AC out voltage, current, frequency | `vebus/<inst>/Ac/Out/L1/V`, `/I`, `/F` |
 | Shore input limit | `vebus/<inst>/Ac/ActiveIn/CurrentLimit` |
 | Quattro state | `vebus/<inst>/State` (map to Off, Inverting, Charging, Passthru, etc.) |
-| Alarms | `vebus/<inst>/Alarms/*`, `battery/<inst>/Alarms/*`, `solarcharger/<inst>/ErrorCode` (0 off, 1 warning, 2 alarm) |
+| Alarms | `vebus/<inst>/Alarms/*`, `battery/<inst>/Alarms/*` (0 off, 1 warning, 2 alarm; the Quattro also has `Alarms/L1/*` copies, merged into one entry). `solarcharger/<inst>/ErrorCode` is a Victron error number instead (0 none), so any non-zero code counts as an alarm. |
 
 ### 5.6 Stale data
 
 * Never show frozen numbers as if they're live
-* **Decision (2026-11-22, for now):** freshness is judged for the whole system, not per group. Data is fresh while the link is up (loading or live) and any message arrived in the last 30s. Otherwise every data screen (Overview, Battery, Solar, AC) keeps the last known values but shows them in grey, with an amber marker top right:
+* **Decision (2026-11-22, for now):** freshness is judged for the whole system, not per group. Data is fresh while the link is up (loading or live) and any message arrived in the last 30s. Otherwise every data screen (Overview, Battery, Solar, AC, Alarms) keeps the last known values but shows them in grey, with an amber marker top right:
   * `NO CONNECTION`: the link is down or reconnecting
   * `STALE`: connected, but nothing arrived for 30s
   * `NO DATA`: connected and live, but nothing has ever arrived (for example a wrong portal ID)
@@ -121,7 +121,7 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 * Rejected alternative: keep the per-group rule and send a full keepalive (no `suppress-republish`) every 30s so everything is resent. It works, but each one republishes every value the Cerbo has, which in cloud mode goes over the trailer's internet every 30s.
 * Per-group update times are still kept in the data layer (`updatedMs`), in case we revisit this.
 * A device that goes away (empty payload) or a null value shows `--`, not a greyed number.
-* Settings and Alarms aren't greyed; Settings shows the connection status itself.
+* Settings isn't greyed; it shows the connection status itself. Alarms is greyed too, since the list could be out of date.
 
 ## 6. Screens
 
@@ -146,7 +146,6 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 * No swipes. Taps only (resistive touch).
 * Icons are the mockup's line icons, drawn into 20px alpha bitmaps by `tools/make_icons.py` (`include/nav_icons.h`) and colored at runtime (white active, muted otherwise)
 * Screens are built once and shown or hidden, so switching and waking are instant. Values refresh every 500 ms.
-* Until item 13, Alarms opens a "Coming soon" page and the Alarms dot only shows low SOC.
 * LVGL has a 56 KB heap, the most that fits beside everything else in static RAM (64 KB overflows). The boot log prints how much of it the screens use (`UI: built, LVGL memory N% used`).
 
 ### 6.3 Overview
@@ -183,6 +182,13 @@ Two cards: AC input (labelled with the live or last used source: voltage, power,
 ### 6.7 Alarms
 
 List of active alarms and warnings: level (ALARM red, WARNING amber), message, device, since time. Footer: "Read only. Clear alarms on the Cerbo." Empty state: "No active alarms".
+
+* **Since time:** the display has no clock (no internet in local mode, and no time sync), so it shows how long the alarm has been active as seen by the display: "Quattro • for 12m", "just now", "for 3h 05m", "for 2d 4h". The count starts when the display first sees it, so after a reboot it restarts.
+* Messages: readable names for the common alarms (Overload, High temperature, AC input lost, Low state of charge, ...); any other name has its words split out (`HighStarterVoltage` becomes "High starter voltage"). MPPT error codes have names for the common ones ("PV input over voltage", "Charger temperature too high", ...), otherwise "Error N".
+* Device: Quattro, SmartShunt, or the MPPT's CustomName.
+* Our own low SOC warning is listed too ("SOC at or below 30%", device "Low SOC setting"), so the dot always has an entry to explain it.
+* Order: alarms before warnings, newest first. Two cards fit; with more, a "1-2 of 5 • tap for more" line pages through them (no swipes).
+* Up to 12 device alarms are tracked at once.
 
 ### 6.8 Settings
 
@@ -227,6 +233,8 @@ All settings saved in NVS.
 
 * SOC at or below the low SOC setting: SOC turns amber and the Alarms dot shows
 * Any device alarm: wake the screen and go to Alarms
+  * Applies to device alarms and warnings. It happens once per alarm, when it appears or gets worse (warning to alarm), so tapping away doesn't get pulled back. Alarms already active at boot also show Alarms once the data arrives.
+  * Low SOC doesn't wake or jump; it only turns amber and shows the dot.
 * No sounds in v1
 
 ## 7. Security and privacy rules
@@ -266,11 +274,11 @@ All settings saved in NVS.
 - [x] Cloud MQTT: broker index, TLS, token login, error status (still to check on the device; can be tested at home by entering home WiFi as trailer WiFi)
 - [x] Local first with cloud fallback, and switching back to local (still to check at the trailer: on cloud, turn the hotspot on and it switches within about 2 minutes)
 - [x] Overview screen, including Shore/Generator last used (still to check on the device with live data)
-- [ ] Battery, Solar, AC, Alarms, Settings screens (Battery, Solar, AC and Settings built, still to check on the device; Alarms comes with item 13)
-- [ ] Bottom nav and alarm dot (nav built; the dot shows low SOC only until item 13)
+- [x] Battery, Solar, AC, Alarms, Settings screens (still to check on the device)
+- [x] Bottom nav and alarm dot (still to check on the device)
 - [x] Stale data handling (whole-system freshness, see 5.6; still to check on the device)
 - [x] Snooze with logo (still to check on the device)
-- [ ] Low SOC and alarm alerts
+- [x] Low SOC and alarm alerts (still to check on the device; alarm paths to verify in item 5)
 - [ ] On device check: nothing cut off, all text readable
 
 ## 10. Change log
@@ -292,3 +300,4 @@ All settings saved in NVS.
 | 2026-11-22 | Item 8 built, and Settings plus the bottom nav from items 9-10. New data layer (`src/victron_data.*`): the MQTT task parses each 5.5 value into one shared set, with a last-update time per group (battery, solar, AC, Quattro) for item 11; MPPTs are kept by instance and carry their CustomName. Overview, Settings and the nav follow the mockups (details in 6.1-6.3, 6.8). The demo screen is gone; the device boots into Overview. Fonts: Montserrat 24 added for the SOC ring, 40 dropped. Flash use 50%. |
 | 2026-11-22 | Battery, Solar and AC / Quattro screens built from the mockups (details in 6.4-6.6). MPPT cards are matched by CustomName, with a fallback for unmatched names. Added AC input voltage (`vebus/<inst>/Ac/ActiveIn/L1/V`) to 5.5 and the subscriptions, unverified like the rest. Montserrat 36 added. LVGL heap 48 KB to 56 KB, with its use logged at boot. Shared row and label helpers moved to `src/ui.cpp`. Flash use 52%, static RAM 37%. |
 | 2026-11-22 | Item 11 built, with a change of plan logged in 5.6: freshness is judged for the whole system (link up and any message in the last 30s) instead of per value group, because the Cerbo only publishes on change and steady groups would grey out falsely. The rejected alternative (a full republish every 30s) would cost cloud data. Stale or disconnected data stays on screen in grey with an amber NO CONNECTION / STALE / NO DATA marker. Chosen by Sabrina "for now"; revisit after item 5 if needed. |
+| 2026-11-22 | Item 13 built, finishing items 9 and 10: Quattro and battery alarms (0/1/2, Quattro L1 copies merged) and MPPT error codes (non-zero = alarm) are kept in the data layer with readable names; Alarms screen from the mockup; the dot shows any alarm, warning or low SOC; a new or worse device alarm wakes the screen and shows Alarms once. "Since" is shown as a duration, since the display has no clock. Alarms now greys out when data is stale. Corrected 5.5: ErrorCode is an error number, not 0/1/2. |
