@@ -71,16 +71,14 @@ static void handleRoot() { server.send_P(200, "text/html", SETUP_PAGE); }
 // Non-secret values to prefill, and only a saved/not-saved flag for secrets
 static void handleConfig() {
   String j = "{";
-  j += "\"hs_ssid\":" + jsonString(cfg.hotspotSsid);
-  j += ",\"mq_host\":" + jsonString(cfg.mqttHost);
+  j += "\"mq_host\":" + jsonString(cfg.mqttHost);
   j += ",\"mq_port\":\"" + String(cfg.mqttPort) + "\"";
   j += ",\"mq_user\":" + jsonString(cfg.mqttUser);
   j += ",\"wf_ssid\":" + jsonString(cfg.wifiSsid);
   j += ",\"portal\":" + jsonString(cfg.portalId);
   j += ",\"vrm_user\":" + jsonString(cfg.vrmUser);
   j += ",\"saved\":{";
-  j += String("\"hs_pass\":") + (cfg.hotspotPass.isEmpty() ? "false" : "true");
-  j += String(",\"gx_pass\":") + (cfg.gxPass.isEmpty() ? "false" : "true");
+  j += String("\"gx_pass\":") + (cfg.gxPass.isEmpty() ? "false" : "true");
   j += String(",\"wf_pass\":") + (cfg.wifiPass.isEmpty() ? "false" : "true");
   j += String(",\"vrm_token\":") + (cfg.vrmToken.isEmpty() ? "false" : "true");
   j += "}}";
@@ -103,14 +101,12 @@ static void takeSecret(const char* name, String& dest) {
 
 static void handleSave() {
   NetConfig next = cfg;
-  next.hotspotSsid = field("hs_ssid");
   next.mqttHost = field("mq_host");
   next.mqttUser = field("mq_user");
   next.wifiSsid = field("wf_ssid");
   next.portalId = field("portal");
   next.portalId.toLowerCase();
   next.vrmUser = field("vrm_user");
-  takeSecret("hs_pass", next.hotspotPass);
   takeSecret("gx_pass", next.gxPass);
   takeSecret("wf_pass", next.wifiPass);
   takeSecret("vrm_token", next.vrmToken);
@@ -120,15 +116,12 @@ static void handleSave() {
   String errors;
   long port = field("mq_port").toInt();
   if (next.mqttHost.isEmpty()) next.mqttHost = DEFAULT_MQTT_HOST;
-  if (port < 1 || port > 65535) errors += "<p class=\"err\">Broker port must be between 1 and 65535.</p>";
+  if (port < 1 || port > 65535) errors += "<p class=\"err\">Cerbo port must be between 1 and 65535.</p>";
   else next.mqttPort = port;
-  if (!net_config_has_network(next))
-    errors += "<p class=\"err\">Enter the Cerbo hotspot or the trailer WiFi, or both.</p>";
-  if (next.hotspotSsid.length() > 32 || next.wifiSsid.length() > 32)
-    errors += "<p class=\"err\">WiFi network names can be at most 32 characters.</p>";
-  if ((!next.hotspotPass.isEmpty() && next.hotspotPass.length() < 8) ||
-      (!next.wifiPass.isEmpty() && next.wifiPass.length() < 8))
-    errors += "<p class=\"err\">WiFi passwords need at least 8 characters.</p>";
+  if (!net_config_has_network(next)) errors += "<p class=\"err\">Enter the trailer WiFi.</p>";
+  if (next.wifiSsid.length() > 32) errors += "<p class=\"err\">The WiFi name can be at most 32 characters.</p>";
+  if (!next.wifiPass.isEmpty() && next.wifiPass.length() < 8)
+    errors += "<p class=\"err\">The WiFi password needs at least 8 characters.</p>";
 
   if (!errors.isEmpty()) {
     sendResult(400, errors + "<p><a href=\"/\">Back to the form</a></p>");
@@ -138,9 +131,9 @@ static void handleSave() {
   String msg = "<p class=\"ok\">Saved. The display is restarting and will connect on its own. "
                "You can close this page and rejoin your usual WiFi.</p>";
   bool cloudSet = !next.portalId.isEmpty() && !next.vrmUser.isEmpty() && !next.vrmToken.isEmpty();
-  if (!next.wifiSsid.isEmpty() && !cloudSet)
-    msg += "<p class=\"warn\">Trailer WiFi is set but the VRM portal ID, email or token is missing, "
-           "so cloud mode won't work yet.</p>";
+  if (!cloudSet)
+    msg += "<p class=\"warn\">The VRM portal ID, email or token is missing, so there's no cloud fallback "
+           "if the Cerbo can't be reached directly.</p>";
 
   cfg = next;
   net_config_save(cfg);

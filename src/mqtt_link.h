@@ -1,6 +1,6 @@
-// Data link to the Victron system (SPEC.md 5): local mode through the Cerbo
-// hotspot, cloud mode through VRM. Each attempt scans, prefers the hotspot, and
-// falls back to the trailer WiFi + VRM. Runs in its own task on core 0 so
+// Data link to the Victron system (SPEC.md 5): one WiFi, shared with the Cerbo.
+// Each attempt joins it, tries the Cerbo's broker directly (local), and falls
+// back to VRM over the same WiFi (cloud). Runs in its own task on core 0 so
 // blocking connects never freeze the UI.
 #pragma once
 
@@ -13,10 +13,10 @@ enum class LinkState : uint8_t {
   Off,             // not started (setup mode)
   NoNetwork,       // nothing saved in setup
   Scanning,
-  NetworkMissing,  // no saved network in range
-  NoCloudConfig,   // trailer WiFi in range, but VRM details missing
+  NetworkMissing,  // saved WiFi not in range
   Joining,
   JoinFailed,
+  CerboNotFound,   // local: the Cerbo address didn't resolve (and no cloud to fall back on)
   Connecting,
   LoginRejected,   // local: GX login refused; cloud: VRM token rejected
   ConnectFailed,

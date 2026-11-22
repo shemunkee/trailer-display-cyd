@@ -13,6 +13,7 @@ struct Settings {
   uint8_t brightnessPct;  // 10-100, steps of 10
   DataSource source;
   AcSource lastAc;        // last live AC input, kept across reboots
+  bool flipped;           // screen turned 180 degrees: USB on the left instead of the right
 };
 
 void settings_load();
@@ -23,5 +24,6 @@ void settings_set_snooze(int sec);
 void settings_set_brightness(int pct);
 void settings_set_source(DataSource s);
 void settings_set_last_ac(AcSource s);
+void settings_set_flipped(bool f);
 
 int settings_snooze_step(int sec, int dir);  // next snooze option up (dir > 0) or down

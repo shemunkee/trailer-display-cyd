@@ -30,6 +30,7 @@ void setup() {
 
   display_begin();
   display_set_brightness(settings_get().brightnessPct);
+  display_set_flipped(settings_get().flipped);  // before calibration or anything else draws
 
 #ifndef WOKWI  // the simulated board has no touch controller
   touch_begin();

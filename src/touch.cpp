@@ -13,6 +13,7 @@ static XPT2046_Touchscreen ts(XPT_CS, XPT_IRQ);
 // screenX = m[0]*rx + m[1]*ry + m[2], screenY = m[3]*rx + m[4]*ry + m[5]
 static float cal[6];
 static bool calValid = false;
+static bool flipped = false;
 
 static int16_t lastX = 0, lastY = 0;
 static bool lastPressed = false;
@@ -36,11 +37,18 @@ void touch_set_calibration(const float m[6]) {
   calValid = true;
 }
 
+void touch_set_flipped(bool f) { flipped = f; }
+bool touch_flipped() { return flipped; }
+
 bool touch_point(int16_t& x, int16_t& y) {
   int16_t rx, ry;
   if (!calValid || !touch_raw(rx, ry)) return false;
   float fx = cal[0] * rx + cal[1] * ry + cal[2];
   float fy = cal[3] * rx + cal[4] * ry + cal[5];
+  if (flipped) {  // the calibration is for the normal orientation
+    fx = SCREEN_W - 1 - fx;
+    fy = SCREEN_H - 1 - fy;
+  }
   x = constrain((int)lroundf(fx), 0, SCREEN_W - 1);
   y = constrain((int)lroundf(fy), 0, SCREEN_H - 1);
   return true;

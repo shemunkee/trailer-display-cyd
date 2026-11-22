@@ -11,7 +11,7 @@ static constexpr uint8_t DEF_BRIGHTNESS = 70;
 static const uint8_t SNOOZE_OPTIONS[] = {5, 10, 30, 60, 90};
 static constexpr int SNOOZE_COUNT = sizeof(SNOOZE_OPTIONS) / sizeof(SNOOZE_OPTIONS[0]);
 
-static Settings cur = {DEF_LOW_SOC, DEF_SNOOZE, DEF_BRIGHTNESS, DataSource::Auto, AcSource::None};
+static Settings cur = {DEF_LOW_SOC, DEF_SNOOZE, DEF_BRIGHTNESS, DataSource::Auto, AcSource::None, false};
 
 static uint8_t snapStep(int v, int step, int lo, int hi) {
   v = ((v + step / 2) / step) * step;
@@ -45,6 +45,7 @@ void settings_load() {
   int snooze = prefs.getUChar("snooze", DEF_SNOOZE);
   int bright = prefs.getUChar("bright", DEF_BRIGHTNESS);
   int lastAc = prefs.getUChar("lastac", (uint8_t)AcSource::None);
+  int flip = prefs.getUChar("flip", 0);
   prefs.end();
 
   // Anything out of range (corrupt or from an older layout) goes back to its default
@@ -53,10 +54,12 @@ void settings_load() {
   cur.brightnessPct = (bright >= 10 && bright <= 100 && bright % 10 == 0) ? bright : DEF_BRIGHTNESS;
   cur.source = DataSource::Auto;  // only option in v1, so "src" isn't read back yet
   cur.lastAc = lastAc <= (int)AcSource::Generator ? (AcSource)lastAc : AcSource::None;
+  cur.flipped = flip == 1;
 
   static const char* acNames[] = {"none", "shore", "generator"};
-  Serial.printf("Settings: low SOC %d%%, snooze %ds, brightness %d%%, source auto, last AC %s\n",
-                cur.lowSocPct, cur.snoozeSec, cur.brightnessPct, acNames[(int)cur.lastAc]);
+  Serial.printf("Settings: low SOC %d%%, snooze %ds, brightness %d%%, source auto, last AC %s, USB %s\n",
+                cur.lowSocPct, cur.snoozeSec, cur.brightnessPct, acNames[(int)cur.lastAc],
+                cur.flipped ? "left" : "right");
 }
 
 const Settings& settings_get() { return cur; }
@@ -92,6 +95,12 @@ void settings_set_last_ac(AcSource s) {
   if (s == cur.lastAc) return;
   cur.lastAc = s;
   write("lastac", (uint8_t)s);
+}
+
+void settings_set_flipped(bool f) {
+  if (f == cur.flipped) return;
+  cur.flipped = f;
+  write("flip", f ? 1 : 0);
 }
 
 int settings_snooze_step(int sec, int dir) {

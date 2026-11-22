@@ -14,12 +14,14 @@
 using namespace theme;
 
 static constexpr uint32_t BUTTON_BG = 0x1A1D24;  // from the Settings mockup
-static constexpr int BTN_W = 40, BTN_H = 30;
+static constexpr int BTN_W = 40, BTN_H = 26;  // five rows fit in 176 px with 6 px gaps
+static constexpr int ROW_GAP = 6;
 static const uint8_t SNOOZE_OPTIONS[] = {5, 10, 30, 60, 90};
 static constexpr int SNOOZE_COUNT = sizeof(SNOOZE_OPTIONS);
 
 static lv_obj_t *lowSocValue, *brightValue;
 static lv_obj_t* snoozeBtn[SNOOZE_COUNT];
+static lv_obj_t* usbBtn[2];  // Left (flipped), Right (normal)
 static lv_obj_t *modeLabel, *statusLabel;
 static lv_obj_t* menu;  // Data source menu, on the top layer while open
 
@@ -36,20 +38,28 @@ static lv_obj_t* row(lv_obj_t* page, const char* title) {
   lv_obj_set_style_pad_left(c, 10, 0);
   lv_obj_set_style_pad_right(c, 4, 0);
   lv_obj_remove_flag(c, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_t* t = ui_text(c, title, &lv_font_montserrat_14, TEXT);
-  lv_obj_align(t, LV_ALIGN_LEFT_MID, 0, 0);
+  // Flex row: title, a spacer that takes the free width, then the controls.
+  // (Aligning a content-sized group to the right edge placed it before its
+  // size was known, so on the device it sat off to the right and low, clipped.)
+  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  ui_text(c, title, &lv_font_montserrat_14, TEXT);
+  lv_obj_t* spacer = lv_obj_create(c);
+  lv_obj_remove_style_all(spacer);
+  lv_obj_set_height(spacer, 1);
+  lv_obj_set_flex_grow(spacer, 1);
+  lv_obj_remove_flag(spacer, LV_OBJ_FLAG_CLICKABLE);
   return c;
 }
 
-// Right-aligned group of controls inside a row
+// Group of controls at the right end of a row
 static lv_obj_t* controls(lv_obj_t* r) {
   lv_obj_t* g = lv_obj_create(r);
   lv_obj_remove_style_all(g);
   lv_obj_set_size(g, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(g, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(g, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_flex_align(g, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_column(g, 4, 0);
-  lv_obj_align(g, LV_ALIGN_RIGHT_MID, 0, 0);
   lv_obj_remove_flag(g, LV_OBJ_FLAG_SCROLLABLE);
   // Not clickable, so a tap between buttons (or on the Data source text and
   // chevron) goes to the row underneath
@@ -86,6 +96,11 @@ static void showValues() {
     lv_obj_set_style_bg_color(snoozeBtn[i], lv_color_hex(on ? AC : BUTTON_BG), 0);
     lv_obj_set_style_text_color(lv_obj_get_child(snoozeBtn[i], 0), lv_color_hex(on ? BG : TEXT), 0);
   }
+  for (int i = 0; i < 2; i++) {
+    bool on = (i == 0) == s.flipped;
+    lv_obj_set_style_bg_color(usbBtn[i], lv_color_hex(on ? AC : BUTTON_BG), 0);
+    lv_obj_set_style_text_color(lv_obj_get_child(usbBtn[i], 0), lv_color_hex(on ? BG : TEXT), 0);
+  }
 }
 
 enum Step { LOW_DOWN, LOW_UP, BRIGHT_DOWN, BRIGHT_UP };
@@ -99,6 +114,15 @@ static void onStep(lv_event_t* e) {
     case BRIGHT_UP: settings_set_brightness(s.brightnessPct + 10); break;
   }
   display_set_brightness(settings_get().brightnessPct);
+  showValues();
+}
+
+// Turns the screen 180 degrees right away; touch follows, no recalibration
+static void onUsb(lv_event_t* e) {
+  bool flip = (intptr_t)lv_event_get_user_data(e) == 0;
+  if (flip == settings_get().flipped) return;
+  settings_set_flipped(flip);
+  display_set_flipped(flip);
   showValues();
 }
 
@@ -188,7 +212,7 @@ static void openMenu(lv_event_t*) {
 
 void settings_screen_create(lv_obj_t* page) {
   lv_obj_set_flex_flow(page, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(page, GAP, 0);
+  lv_obj_set_style_pad_row(page, ROW_GAP, 0);
 
   lowSocValue = stepper(page, "Low SOC", LOW_DOWN, LOW_UP);
 
@@ -200,6 +224,11 @@ void settings_screen_create(lv_obj_t* page) {
   }
 
   brightValue = stepper(page, "Brightness", BRIGHT_DOWN, BRIGHT_UP);
+
+  lv_obj_t* usb = controls(row(page, "USB side"));
+  usbBtn[0] = button(usb, "Left", &lv_font_montserrat_12, onUsb, 0);
+  usbBtn[1] = button(usb, "Right", &lv_font_montserrat_12, onUsb, 1);
+  for (lv_obj_t* b : usbBtn) lv_obj_set_width(b, 48);
 
   lv_obj_t* src = row(page, "Data source");
   lv_obj_add_flag(src, LV_OBJ_FLAG_CLICKABLE);

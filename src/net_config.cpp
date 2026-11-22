@@ -7,8 +7,6 @@ static constexpr const char* NVS_NS = "net";
 void net_config_load(NetConfig& c) {
   Preferences prefs;
   prefs.begin(NVS_NS, false);
-  c.hotspotSsid = prefs.getString("hs_ssid", "");
-  c.hotspotPass = prefs.getString("hs_pass", "");
   c.mqttHost = prefs.getString("mq_host", DEFAULT_MQTT_HOST);
   c.mqttPort = prefs.getUShort("mq_port", DEFAULT_MQTT_PORT);
   c.mqttUser = prefs.getString("mq_user", "");
@@ -18,16 +16,22 @@ void net_config_load(NetConfig& c) {
   c.portalId = prefs.getString("portal", "");
   c.vrmUser = prefs.getString("vrm_user", "");
   c.vrmToken = prefs.getString("vrm_token", "");
+  // Older setups had a separate Cerbo hotspot (hs_ssid, hs_pass) at 172.24.24.1;
+  // now there's one WiFi. Use the hotspot only if no WiFi was saved.
+  if (c.wifiSsid.isEmpty()) {
+    c.wifiSsid = prefs.getString("hs_ssid", "");
+    c.wifiPass = prefs.getString("hs_pass", "");
+  }
   prefs.end();
-  if (c.mqttHost.isEmpty()) c.mqttHost = DEFAULT_MQTT_HOST;
+  if (c.mqttHost.isEmpty() || c.mqttHost == "172.24.24.1") c.mqttHost = DEFAULT_MQTT_HOST;
   if (c.mqttPort == 0) c.mqttPort = DEFAULT_MQTT_PORT;
 }
 
 void net_config_save(const NetConfig& c) {
   Preferences prefs;
   prefs.begin(NVS_NS, false);
-  prefs.putString("hs_ssid", c.hotspotSsid);
-  prefs.putString("hs_pass", c.hotspotPass);
+  prefs.remove("hs_ssid");  // from the old two-network setup
+  prefs.remove("hs_pass");
   prefs.putString("mq_host", c.mqttHost);
   prefs.putUShort("mq_port", c.mqttPort);
   prefs.putString("mq_user", c.mqttUser);
@@ -41,7 +45,7 @@ void net_config_save(const NetConfig& c) {
 }
 
 bool net_config_has_network(const NetConfig& c) {
-  return !c.hotspotSsid.isEmpty() || !c.wifiSsid.isEmpty();
+  return !c.wifiSsid.isEmpty();
 }
 
 String mask_secret(const String& s) {
@@ -53,11 +57,9 @@ String mask_secret(const String& s) {
 static const char* setOrEmpty(const String& s) { return s.isEmpty() ? "empty" : "set"; }
 
 void net_config_log(const NetConfig& c) {
-  Serial.printf("Net: hotspot %s (pass %s), broker %s:%u (GX user %s, GX pass %s)\n",
-                mask_secret(c.hotspotSsid).c_str(), setOrEmpty(c.hotspotPass), c.mqttHost.c_str(), c.mqttPort,
-                setOrEmpty(c.mqttUser), setOrEmpty(c.gxPass));
-  Serial.printf("Net: trailer WiFi %s (pass %s), portal %s, VRM user %s, token %s\n",
-                mask_secret(c.wifiSsid).c_str(), setOrEmpty(c.wifiPass), mask_secret(c.portalId).c_str(),
+  Serial.printf("Net: WiFi %s (pass %s), Cerbo %s:%u (GX user %s, GX pass %s)\n", mask_secret(c.wifiSsid).c_str(),
+                setOrEmpty(c.wifiPass), c.mqttHost.c_str(), c.mqttPort, setOrEmpty(c.mqttUser), setOrEmpty(c.gxPass));
+  Serial.printf("Net: VRM portal %s, user %s, token %s\n", mask_secret(c.portalId).c_str(),
                 mask_secret(c.vrmUser).c_str(),
                 c.vrmToken.isEmpty() ? "(empty)" : ("Token " + mask_secret(c.vrmToken)).c_str());
 }

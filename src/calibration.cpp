@@ -75,7 +75,7 @@ static bool sample(int16_t& rx, int16_t& ry) {
 }
 
 // Solve screen = a*rx + b*ry + c for X and Y from three points (Cramer's rule)
-static bool solve(const int16_t rx[], const int16_t ry[], float m[6]) {
+static bool solve(const Target targets[], const int16_t rx[], const int16_t ry[], float m[6]) {
   float x1 = rx[0], x2 = rx[1], x3 = rx[2];
   float y1 = ry[0], y2 = ry[1], y3 = ry[2];
   float det = x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2);
@@ -136,10 +136,17 @@ void calibration_run() {
       ok = sample(rx[i], ry[i]);
     }
 
+    // Saved for the normal orientation, so flipping later needs no recalibration:
+    // a point drawn at (x, y) while flipped is (W-1-x, H-1-y) the normal way up
+    Target normal[4];
+    for (int i = 0; i < 4; i++) {
+      normal[i] = targets[i];
+      if (touch_flipped()) normal[i] = {(int16_t)(SCREEN_W - 1 - targets[i].x), (int16_t)(SCREEN_H - 1 - targets[i].y)};
+    }
     float m[6];
-    if (ok && solve(rx, ry, m)) {
-      float ex = m[0] * rx[3] + m[1] * ry[3] + m[2] - targets[3].x;
-      float ey = m[3] * rx[3] + m[4] * ry[3] + m[5] - targets[3].y;
+    if (ok && solve(normal, rx, ry, m)) {
+      float ex = m[0] * rx[3] + m[1] * ry[3] + m[2] - normal[3].x;
+      float ey = m[3] * rx[3] + m[4] * ry[3] + m[5] - normal[3].y;
       float err = sqrtf(ex * ex + ey * ey);
       Serial.printf("Touch: check point off by %.1f px\n", err);
       if (err <= MAX_ERROR_PX) {

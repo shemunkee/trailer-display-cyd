@@ -1,6 +1,7 @@
 #include "mqtt_link.h"
 
 #include <Arduino.h>
+#include <ESPmDNS.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -11,6 +12,8 @@
 
 static constexpr uint32_t JOIN_TIMEOUT_MS = 15000;    // SPEC 5.3
 static constexpr uint32_t DISCOVERY_MS = 10000;
+static constexpr uint32_t MDNS_TIMEOUT_MS = 2000;   // venus.local lookup
+static constexpr int32_t PROBE_TIMEOUT_MS = 3000;   // is the Cerbo broker answering?
 static constexpr uint32_t KEEPALIVE_MS = 30000;       // broker timeout is 60 s
 static constexpr uint32_t RETRY_MIN_MS = 5000;
 static constexpr uint32_t RETRY_MAX_MS = 60000;
@@ -64,7 +67,9 @@ static String discoveredId;
 static String cloudHost;
 static uint32_t lastKeepalive = 0, lastUnseenReport = 0;
 static uint32_t lastRescan = 0;
-static uint8_t localFailStreak = 0;  // hotspot in range but local didn't connect
+static uint8_t localFailStreak = 0;  // Cerbo answered the probe but local didn't connect
+static bool mdnsStarted = false;
+static IPAddress cerboIp;
 
 // ---------- status, shared with the UI task ----------
 
@@ -91,15 +96,17 @@ void mqtt_link_status_text(char* buf, size_t len) {
   bool cloud = s.mode == LinkMode::Cloud;
   switch (s.state) {
     case LinkState::Off: snprintf(buf, len, "Off"); break;
-    case LinkState::NoNetwork: snprintf(buf, len, "No network saved in setup"); break;
-    case LinkState::Scanning: snprintf(buf, len, "Looking for networks"); break;
-    case LinkState::NetworkMissing: snprintf(buf, len, "No saved network in range"); break;
-    case LinkState::NoCloudConfig: snprintf(buf, len, "VRM details missing in setup"); break;
-    case LinkState::Joining: snprintf(buf, len, "Joining %s", cloud ? "trailer WiFi" : "hotspot"); break;
+    case LinkState::NoNetwork: snprintf(buf, len, "No WiFi saved in setup"); break;
+    case LinkState::Scanning: snprintf(buf, len, "Looking for WiFi"); break;
+    case LinkState::NetworkMissing: snprintf(buf, len, "Saved WiFi not in range"); break;
+    case LinkState::Joining: snprintf(buf, len, "Joining WiFi"); break;
     case LinkState::JoinFailed: snprintf(buf, len, "Couldn't join WiFi"); break;
+    case LinkState::CerboNotFound: snprintf(buf, len, "Cerbo not found on WiFi"); break;
     case LinkState::Connecting: snprintf(buf, len, "Connecting"); break;
     case LinkState::LoginRejected: snprintf(buf, len, cloud ? "VRM token rejected" : "GX login rejected"); break;
-    case LinkState::ConnectFailed: snprintf(buf, len, "Broker not reachable (%d)", s.mqttRc); break;
+    case LinkState::ConnectFailed:
+      snprintf(buf, len, "%s not reachable (%d)", cloud ? "VRM broker" : "Cerbo broker", s.mqttRc);
+      break;
     case LinkState::FindingPortal: snprintf(buf, len, "Finding portal ID"); break;
     case LinkState::NoPortal: snprintf(buf, len, "Portal ID missing in setup"); break;
     case LinkState::Loading: snprintf(buf, len, "Loading, %u/%u paths", s.pathsSeen, s.pathsTotal); break;
@@ -219,41 +226,47 @@ static void onMessage(char* topicRaw, byte* payload, unsigned int len) {
 
 // ---------- connection steps ----------
 
-struct ScanResult {
-  bool hotspot, trailer;
-};
-
-static ScanResult scan() {
+// Join the saved WiFi, unless still joined from the last session (a switch
+// from cloud to local keeps the WiFi up)
+static bool ensureWifi() {
+  if (WiFi.status() == WL_CONNECTED) return true;
   mode = LinkMode::None;
   setState(LinkState::Scanning);
   WiFi.mode(WIFI_STA);
   int n = WiFi.scanNetworks();
-  ScanResult r = {false, false};
-  for (int i = 0; i < n; i++) {
-    String ssid = WiFi.SSID(i);
-    if (!cfg.hotspotSsid.isEmpty() && ssid == cfg.hotspotSsid) r.hotspot = true;
-    if (!cfg.wifiSsid.isEmpty() && ssid == cfg.wifiSsid) r.trailer = true;
-  }
+  bool found = false;
+  for (int i = 0; i < n && !found; i++) found = WiFi.SSID(i) == cfg.wifiSsid;
   WiFi.scanDelete();
-  Serial.printf("Scan: hotspot %s, trailer WiFi %s\n", r.hotspot ? "in range" : "not found",
-                r.trailer ? "in range" : "not found");
-  return r;
-}
-
-static bool join(const String& ssid, const String& pass) {
+  if (!found) {
+    Serial.println("WiFi: saved network not in range");
+    setState(LinkState::NetworkMissing);
+    return false;
+  }
   setState(LinkState::Joining);
-  WiFi.begin(ssid.c_str(), pass.c_str());
+  WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPass.c_str());
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < JOIN_TIMEOUT_MS) vTaskDelay(pdMS_TO_TICKS(100));
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.printf("%s: couldn't join WiFi\n", mode == LinkMode::Cloud ? "Cloud" : "Local");
+    Serial.println("WiFi: couldn't join");
     WiFi.disconnect(true);
     setState(LinkState::JoinFailed);
     return false;
   }
-  Serial.printf("%s: joined WiFi, IP %s\n", mode == LinkMode::Cloud ? "Cloud" : "Local",
-                WiFi.localIP().toString().c_str());
+  Serial.printf("WiFi: joined, IP %s\n", WiFi.localIP().toString().c_str());
+  if (!mdnsStarted) mdnsStarted = MDNS.begin("cyd-victron");  // needed to look up venus.local
   return true;
+}
+
+// The Cerbo's address: an IP as typed, a .local name through mDNS, or plain DNS
+static bool resolveCerbo(IPAddress& ip) {
+  if (ip.fromString(cfg.mqttHost)) return true;
+  String host = cfg.mqttHost;
+  if (host.endsWith(".local")) {
+    if (!mdnsStarted) return false;
+    ip = MDNS.queryHost(host.substring(0, host.length() - 6), MDNS_TIMEOUT_MS);
+    return ip != IPAddress((uint32_t)0);
+  }
+  return WiFi.hostByName(host.c_str(), ip) == 1;
 }
 
 static String clientId() { return "cyd-victron-" + String((uint32_t)ESP.getEfuseMac(), HEX); }
@@ -270,21 +283,31 @@ static void connectFailed(const char* label, bool tls) {
 }
 
 static bool connectLocal() {
+  mode = LinkMode::Local;
   setState(LinkState::Connecting);
+  IPAddress ip;
+  if (!resolveCerbo(ip)) {
+    Serial.printf("Local: Cerbo %s not found on this WiFi\n", cfg.mqttHost.c_str());
+    setState(LinkState::CerboNotFound);
+    return false;
+  }
+  cerboIp = ip;
   mqtt.setClient(plainNet);
-  mqtt.setServer(cfg.mqttHost.c_str(), cfg.mqttPort);
+  mqtt.setServer(cerboIp, cfg.mqttPort);
   bool ok = cfg.gxPass.isEmpty() ? mqtt.connect(clientId().c_str())
                                  : mqtt.connect(clientId().c_str(), cfg.mqttUser.c_str(), cfg.gxPass.c_str());
   if (!ok) {
     connectFailed("Local", false);
     return false;
   }
-  Serial.printf("Local: broker %s:%u connected\n", cfg.mqttHost.c_str(), cfg.mqttPort);
+  Serial.printf("Local: broker %s (%s):%u connected\n", cfg.mqttHost.c_str(), cerboIp.toString().c_str(),
+                cfg.mqttPort);
   return true;
 }
 
 // TLS verified against the Victron CA, always (SPEC 5.2, 7)
 static bool connectCloud() {
+  mode = LinkMode::Cloud;
   setState(LinkState::Connecting);
   cloudHost = brokerFor(cfg.portalId);
   mqtt.setClient(tlsNet);
@@ -330,36 +353,24 @@ static bool findPortal() {
   return true;
 }
 
-// One attempt: hotspot first (SPEC 5.3 steps 1-2), else trailer WiFi + VRM
+// One attempt (SPEC 5.3): join the WiFi, try the Cerbo directly, else VRM over the same WiFi
 static bool connectOnce() {
-  ScanResult r = scan();
-  if (r.hotspot) {
-    mode = LinkMode::Local;
-    if (join(cfg.hotspotSsid, cfg.hotspotPass) && connectLocal() && findPortal()) {
-      localFailStreak = 0;
-      return true;
-    }
-    if (localFailStreak < 255) localFailStreak++;
-    mqtt.disconnect();
-    WiFi.disconnect(true);
+  if (!ensureWifi()) return false;
+  if (connectLocal() && findPortal()) {
+    localFailStreak = 0;
+    return true;
   }
-  if (r.trailer) {
-    mode = LinkMode::Cloud;
-    if (!cloudConfigured()) {
-      Serial.println("Cloud: trailer WiFi in range but VRM portal ID, email or token missing");
-      setState(LinkState::NoCloudConfig);
-      return false;
-    }
-    if (join(cfg.wifiSsid, cfg.wifiPass) && connectCloud()) {
-      portalId = cfg.portalId;
-      lastRescan = millis();
-      return true;
-    }
-    mqtt.disconnect();
-    WiFi.disconnect(true);
-    return false;
+  mqtt.disconnect();
+  if (!cloudConfigured()) {
+    Serial.println("Cloud: not set up (VRM portal ID, email or token missing), no fallback");
+    return false;  // keeps the local failure as the status
   }
-  if (!r.hotspot) setState(LinkState::NetworkMissing);
+  if (connectCloud()) {
+    portalId = cfg.portalId;
+    lastRescan = millis();
+    return true;
+  }
+  mqtt.disconnect();
   return false;
 }
 
@@ -380,22 +391,26 @@ static void subscribeAll() {
   Serial.printf("Net: task stack %u bytes spare\n", (unsigned)uxTaskGetStackHighWaterMark(nullptr));
 }
 
-// While on cloud (SPEC 5.3 step 3): every 2 min, look for the hotspot without
-// dropping the connection. Each failed local attempt with the hotspot in range
-// doubles the wait (up to 30 min), so a hotspot without a working broker
-// doesn't keep knocking cloud mode offline.
+// While on cloud (SPEC 5.3 step 3): every 2 min, check whether the Cerbo's
+// broker answers on the WiFi, without dropping the cloud connection. If it
+// answers but local then fails, the wait doubles (up to 30 min), so a Cerbo
+// that accepts connections but not our login doesn't keep knocking cloud offline.
 static bool shouldSwitchToLocal() {
-  if (mode != LinkMode::Cloud || cfg.hotspotSsid.isEmpty()) return false;
+  if (mode != LinkMode::Cloud) return false;
   uint32_t wait = RESCAN_MS << min<uint8_t>(localFailStreak, 4);
   if (wait > RESCAN_MAX_MS) wait = RESCAN_MAX_MS;
   if (millis() - lastRescan < wait) return false;
   lastRescan = millis();
-  int n = WiFi.scanNetworks();
-  bool found = false;
-  for (int i = 0; i < n && !found; i++) found = WiFi.SSID(i) == cfg.hotspotSsid;
-  WiFi.scanDelete();
-  if (found) Serial.println("Cloud: hotspot in range, switching to local");
-  return found;
+  IPAddress ip;
+  if (!resolveCerbo(ip)) return false;
+  WiFiClient probe;
+  bool open = probe.connect(ip, cfg.mqttPort, PROBE_TIMEOUT_MS);
+  probe.stop();
+  if (open) {
+    Serial.println("Cloud: Cerbo answers on this WiFi, switching to local");
+    if (localFailStreak < 255) localFailStreak++;  // reset to 0 once local works
+  }
+  return open;
 }
 
 // ---------- task ----------
@@ -418,10 +433,12 @@ static void netTask(void*) {
       if (shouldSwitchToLocal()) break;
       vTaskDelay(pdMS_TO_TICKS(2));
     }
-    if (mqtt.connected() && WiFi.status() == WL_CONNECTED) Serial.println("Cloud: disconnecting");
-    else Serial.printf("%s: connection lost\n", mode == LinkMode::Cloud ? "Cloud" : "Local");
+    bool wifiUp = WiFi.status() == WL_CONNECTED;
+    if (mqtt.connected() && wifiUp) Serial.println("Cloud: disconnecting");
+    else Serial.printf("%s: connection lost%s\n", mode == LinkMode::Cloud ? "Cloud" : "Local",
+                       wifiUp ? "" : " (WiFi dropped)");
     mqtt.disconnect();
-    WiFi.disconnect(true);
+    if (!wifiUp) WiFi.disconnect(true);
   }
 }
 
@@ -435,6 +452,9 @@ void mqtt_link_begin() {
   }
   tlsNet.setCACert(VENUS_CA);
   tlsNet.setHandshakeTimeout(TLS_HANDSHAKE_S);
+  // PubSubClient's disconnect() uses its client without checking, so give it one
+  // from the start: a failed Cerbo lookup disconnects before any connect set it
+  mqtt.setClient(plainNet);
   mqtt.setBufferSize(1024);
   mqtt.setSocketTimeout(5);
   mqtt.setCallback(onMessage);

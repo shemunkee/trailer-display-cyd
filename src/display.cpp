@@ -5,6 +5,7 @@
 #include <lvgl.h>
 
 #include "board.h"
+#include "touch.h"
 
 #if defined(ST7789_DRIVER)
 #define DRIVER_NAME "ST7789"
@@ -73,7 +74,16 @@ void display_set_brightness(uint8_t pct) {
 }
 
 void display_refresh() {
-  if (disp) lv_obj_invalidate(lv_display_get_screen_active(disp));
+  if (!disp) return;
+  lv_obj_invalidate(lv_display_get_screen_active(disp));
+  lv_obj_invalidate(lv_display_get_layer_top(disp));
+}
+
+// Landscape both ways: rotation 1 has the USB on the right, 3 on the left
+void display_set_flipped(bool f) {
+  tft.setRotation(f ? 3 : 1);
+  touch_set_flipped(f);
+  display_refresh();
 }
 
 TFT_eSPI& display_tft() { return tft; }

@@ -26,21 +26,24 @@ button.main{width:100%;background:#7C88F7;color:#000;font-weight:600;padding:12p
 <h1>CYD Victron display setup</h1>
 <form method="post" action="/save" autocomplete="off">
 <section>
-<h2>Cerbo hotspot (local mode)</h2>
-<p class="note">Preferred. The display joins the Cerbo's own WiFi and reads its MQTT broker directly.</p>
-<label for="hs_ssid">Hotspot network name (SSID)</label><input id="hs_ssid" name="hs_ssid" maxlength="32">
-<label>Hotspot password</label><div data-secret="hs_pass"></div>
-<div class="row"><div><label for="mq_host">Broker address</label><input id="mq_host" name="mq_host" maxlength="63"></div>
+<h2>Trailer WiFi</h2>
+<p class="note">The WiFi the Cerbo is on. The display joins it too.</p>
+<label for="wf_ssid">WiFi network name (SSID)</label><input id="wf_ssid" name="wf_ssid" maxlength="32">
+<label>WiFi password</label><div data-secret="wf_pass"></div>
+</section>
+<section>
+<h2>Cerbo (local mode)</h2>
+<p class="note">Preferred. The display reads the Cerbo's MQTT broker directly over the WiFi. MQTT must be switched on in the Cerbo's settings.</p>
+<div class="row"><div><label for="mq_host">Cerbo address</label><input id="mq_host" name="mq_host" maxlength="63" autocapitalize="none"></div>
 <div class="port"><label for="mq_port">Port</label><input id="mq_port" name="mq_port" inputmode="numeric" maxlength="5"></div></div>
+<p class="note">venus.local usually works. If not, use the Cerbo's IP address, shown in its WiFi settings.</p>
 <label for="mq_user">GX username (optional)</label><input id="mq_user" name="mq_user" maxlength="32" autocapitalize="none">
 <label>GX password (optional)</label><div data-secret="gx_pass"></div>
 <p class="note">Only needed if the Cerbo's security profile is "Weak". Leave the username blank unless MQTT Explorer needed one.</p>
 </section>
 <section>
-<h2>Trailer WiFi and VRM (cloud mode)</h2>
-<p class="note">Fallback when the Cerbo hotspot is out of range.</p>
-<label for="wf_ssid">Trailer WiFi network name (SSID)</label><input id="wf_ssid" name="wf_ssid" maxlength="32">
-<label>Trailer WiFi password</label><div data-secret="wf_pass"></div>
+<h2>VRM (cloud mode)</h2>
+<p class="note">Fallback over the same WiFi when the Cerbo can't be reached directly.</p>
 <label for="portal">VRM portal ID</label><input id="portal" name="portal" maxlength="32" autocapitalize="none">
 <label for="vrm_user">VRM email</label><input id="vrm_user" name="vrm_user" type="email" maxlength="64" autocapitalize="none">
 <label>VRM access token</label><div data-secret="vrm_token"></div>
@@ -51,7 +54,7 @@ button.main{width:100%;background:#7C88F7;color:#000;font-weight:600;padding:12p
 <script>
 function input(name){var i=document.createElement('input');i.name=name;i.type='password';i.maxLength=128;return i}
 fetch('/config').then(function(r){return r.json()}).then(function(c){
- ['hs_ssid','mq_host','mq_port','mq_user','wf_ssid','portal','vrm_user'].forEach(function(k){document.getElementById(k).value=c[k]});
+ ['mq_host','mq_port','mq_user','wf_ssid','portal','vrm_user'].forEach(function(k){document.getElementById(k).value=c[k]});
  document.querySelectorAll('[data-secret]').forEach(function(d){
   var k=d.dataset.secret;
   if(!c.saved[k]){d.appendChild(input(k));return}

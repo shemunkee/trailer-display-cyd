@@ -1,6 +1,6 @@
 # CYD Victron Display: Build Spec
 
-**Status:** v1 in progress (checklist items 1-4 and 6-13 built; 5 and 14 need the live system and the device)
+**Status:** v1 in progress (checklist items 1-13 built, 5 confirmed on the live system; 14 is the on-device check)
 **Owner:** Sabrina
 **Last updated:** 2026-11-22
 
@@ -12,7 +12,7 @@ Screen mockups: https://claude.ai/artifact/1YQthzTCZrTkbtBv76tEti
 
 ## 1. Goal
 
-A small wall display in the RV that shows the Victron system status I normally check on the VRM portal. It's read only. It gets data from the Cerbo GX over its local hotspot first, and falls back to the VRM cloud when the hotspot isn't in range.
+A small wall display in the RV that shows the Victron system status I normally check on the VRM portal. It's read only. It joins the trailer WiFi (the same network the Cerbo GX is on), reads the Cerbo directly first, and falls back to the VRM cloud over that WiFi when the Cerbo can't be reached.
 
 ## 2. Hardware
 
@@ -33,7 +33,7 @@ A small wall display in the RV that shows the Victron system status I normally c
 * No secrets in source, in `platformio.ini`, or in git
 * MQTT: PubSubClient 2.8 (1 KB buffer), over WiFiClient locally and WiFiClientSecure for cloud. Networking runs in its own FreeRTOS task on core 0; LVGL stays on core 1 and reads status through a mutex.
 * Envs: `cyd_ili9341` (default), `cyd_st7789`, `wokwi` (simulator, no touch). Partition table `huge_app.csv` (3 MB app, no OTA).
-* NVS namespaces: `settings` (keys `lowsoc`, `snooze`, `bright`, `src`, `lastac`), `touch` (calibration `m` + version `v`), `net` (setup values: `hs_ssid`, `hs_pass`, `mq_host`, `mq_port`, `mq_user`, `gx_pass`, `wf_ssid`, `wf_pass`, `portal`, `vrm_user`, `vrm_token`, `ap_pass` (the setup network password), plus the one-shot `setup` flag set by Run setup). The VRM token is stored bare; `Token ` is added when connecting.
+* NVS namespaces: `settings` (keys `lowsoc`, `snooze`, `bright`, `src`, `lastac`, `flip`), `touch` (calibration `m` + version `v`), `net` (setup values: `mq_host`, `mq_port`, `mq_user`, `gx_pass`, `wf_ssid`, `wf_pass` (the one WiFi), `portal`, `vrm_user`, `vrm_token`, `ap_pass` (the setup network password), plus the one-shot `setup` flag set by Run setup). Older `hs_ssid` / `hs_pass` (Cerbo hotspot) are read once as the WiFi if none is saved, and removed on the next save; a saved broker `172.24.24.1` becomes `venus.local`. The VRM token is stored bare; `Token ` is added when connecting.
 
 ## 4. Victron system
 
@@ -51,14 +51,14 @@ Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance 
 
 ### 5.1 Local mode (preferred)
 
-* Join the Cerbo's hotspot (SSID and password from setup)
-* MQTT broker at the Cerbo's hotspot address, usually `172.24.24.1`. Make host and port settable in setup, with that default.
+* **Decision (2026-11-22):** one WiFi only. The Cerbo and the display both join the trailer WiFi, so there's no separate Cerbo hotspot setting. (Was: join the Cerbo's own hotspot at `172.24.24.1`, with the trailer WiFi only for cloud.)
+* MQTT broker on the Cerbo, address settable in setup with default `venus.local` (the name the Cerbo announces over mDNS). An IP address or a normal host name also works. MQTT has to be switched on in the Cerbo's settings.
 * Port 1883. Support optional username/password, because the Cerbo's "Weak" security profile requires the GX password. The username is its own optional setup field (blank by default) because the dbus-flashmq README doesn't say which username goes with the GX password; check with MQTT Explorer.
-* No internet access in this mode. That's the point of it.
+* Local mode needs no internet, only the WiFi. That's the point of it.
 
 ### 5.2 Cloud mode (fallback)
 
-* Join the trailer WiFi (SSID and password from setup)
+* Over the same trailer WiFi, when it has internet
 * Broker: `mqttN.victronenergy.com`, port 8883, TLS
 * Work out `N` from the portal ID: sum the ASCII codes of the lowercase portal ID characters, then take `% 128`
 * TLS: verify with the Victron CA certificate (`venus-ca.crt` from the victronenergy/dbus-flashmq or dbus-mqtt repo), stored in the firmware. Never turn off certificate checks.
@@ -70,9 +70,9 @@ Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance 
 
 ### 5.3 Connection logic
 
-1. On boot, try local mode (scan for the hotspot SSID, try to connect for up to about 15s)
-2. If that fails, try cloud mode. (Built: each connection attempt scans once, uses the hotspot if it's in range, otherwise the trailer WiFi. Losing the connection starts a new attempt.)
-3. While in cloud mode, scan for the hotspot every 2 minutes. If it's found, switch to local. The scan runs without dropping the cloud connection. If the hotspot is in range but local fails (it falls back to cloud), each failure doubles the wait between rescans, up to 30 minutes, so a hotspot without a working broker doesn't keep knocking cloud offline. A working local connection resets it to 2 minutes.
+1. On boot, join the WiFi (scan for it, try to join for up to about 15s), then try local mode: look up the Cerbo address (mDNS for `.local` names, 2s) and connect to its broker
+2. If local fails, try cloud mode over the same WiFi, without rejoining. Losing the connection starts a new attempt; the WiFi is only rejoined if it dropped.
+3. While in cloud mode, every 2 minutes check whether the Cerbo's broker answers (look up the address, open and close a connection to the port, up to 3s), without dropping the cloud connection. If it answers, switch to local. If it answers but local then fails (it falls back to cloud), the wait doubles each time, up to 30 minutes, so a Cerbo that refuses our login doesn't keep knocking cloud offline. A working local connection resets it to 2 minutes.
 4. If neither works, show the last known values greyed out with a "No connection" status, and keep retrying (built with item 11, see 5.6)
 5. Show the current source (Local or Cloud) on the Settings screen Data source row
 
@@ -88,6 +88,8 @@ Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance 
 ### 5.5 Data points
 
 These paths are my best understanding of Venus OS. **Verify every one against the live system with MQTT Explorer before relying on it**, and correct this table if needed.
+
+**Checked 2026-11-22 over cloud:** all 25 subscribed paths delivered data and the full publish completed. Seen on the live system: Quattro is `vebus/276`, SmartShunt `battery/279`, the Driver MPPT `solarcharger/277` (instances can change, so screens still match by name). Notes from the values: `Dc/Pv/Power` reads slightly negative at night (-5.7 W), so solar power is clamped to 0; `TimeToGo` is about 864000 s (240 h) when full and idle, shown as 99h+; `CurrentLimit` also carries `min` and `max` next to `value`; `Ac/Genset/L1/Power` is null with no generator, shown as `--`. Battery alarm names seen: `Alarms/Alarm`; Quattro: `Alarms/TemperatureSensor` (others arrive under the same wildcard). The Passenger MPPT reports too (both cards showed 0 W at night).
 
 | Screen value | Topic path (after `N/<portalId>/`) |
 |---|---|
@@ -192,16 +194,18 @@ List of active alarms and warnings: level (ALARM red, WARNING amber), message, d
 
 ### 6.8 Settings
 
-Four rows:
+Five rows:
 
 | Row | Options | Default |
 |---|---|---|
 | Low SOC warning | Steps of 5% | 30% |
 | Snooze | 5s, 10s, 30s, 60s, 90s | 30s |
 | Brightness | Steps of 10% | 70% |
+| USB side | Left, Right: which side the USB cable comes out. Left turns the screen 180 degrees, at once. | Right |
 | Data source | Shows Local or Cloud and status. Tap opens: Run setup, Recalibrate touch | Auto |
 
-* Layout as in the Settings mockup: one card per row, − / + buttons for Low SOC and Brightness, five buttons for Snooze with the chosen one in blue
+* Layout as in the Settings mockup: one card per row, − / + buttons for Low SOC and Brightness, five buttons for Snooze with the chosen one in blue, Left / Right for USB side the same way. Rows are 6px apart with 26px buttons so five fit (the mockup has four)
+* USB side: touch calibration is always saved for the normal (USB right) orientation and mirrored when flipped, so flipping needs no recalibration; calibrating while flipped saves it the normal way too. The flip applies from power-up, including calibration and setup screens
 * Data source shows Local or Cloud (green when live, amber while connecting or failing, "No connection" in grey) with a short status below, such as "Live, 22/24 paths" or "VRM token rejected"
 * The Data source menu is a card over a dimmed screen with Run setup (restarts into setup), Recalibrate touch, and Close
 
@@ -212,13 +216,13 @@ All settings saved in NVS.
 * The CYD starts its own WiFi network (`Victron_CYD`). Its random password is made once per device on the first setup, kept in NVS, and reused every time setup opens, so a phone that joined before can rejoin on its own. The QR code and password text are still shown each time.
 * Screen shows two QR codes: (1) join the setup WiFi (standard `WIFI:T:WPA;S:...;P:...;;` format), (2) open `http://192.168.4.1`. Print the network name, password and address as text too.
 * Captive portal so most phones open the page on their own
-* The page collects: Cerbo hotspot SSID and password, local broker host/port (prefilled), optional GX username and password, trailer WiFi SSID and password, VRM portal ID, VRM email, VRM token
+* The page collects, in three sections: trailer WiFi SSID and password; Cerbo address and port (prefilled `venus.local`:1883), optional GX username and password; VRM portal ID, VRM email, VRM token
 * Saved secrets are never sent back to the page. Show "Saved" with a Replace option.
 * On save: store in NVS, shut down the setup network, restart
-* Opens on boot when no WiFi (hotspot or trailer) is saved, or after Run setup (sets an NVS flag and restarts). Run setup is in Settings → Data source.
+* Opens on boot when no WiFi is saved, or after Run setup (sets an NVS flag and restarts). Run setup is in Settings → Data source.
 * When rerunning setup, non-secret values (SSIDs, broker host/port, portal ID, VRM email) are prefilled. Passwords, GX password and token only show "Saved" / Replace; a blank field keeps the saved value.
 * A Cancel button (shown only when settings already exist) restarts without saving
-* The page checks: at least one WiFi, port 1-65535, WiFi passwords 8+ characters; warns if trailer WiFi is set without the VRM portal ID, email and token. A pasted `Token ` prefix is stripped.
+* The page checks: a WiFi is entered, port 1-65535, WiFi password empty (open network) or 8+ characters; warns if the VRM portal ID, email or token is missing (no cloud fallback). A pasted `Token ` prefix is stripped.
 
 ### 6.10 Snooze and logo
 
@@ -270,9 +274,9 @@ All settings saved in NVS.
 - [x] Settings in NVS (confirmed on the device: setting changed on the demo screen kept after a power cycle)
 - [x] Setup portal with QR codes (confirmed on the device: QR scan, captive page, save and restart, rerun shows Saved, Cancel)
 - [x] Local MQTT: connect, portal ID discovery, keepalive (still to check at the trailer: join, connect, portal ID, paths seen, keepalive every 30s)
-- [ ] Topic paths verified against the live system (update 5.5)
+- [x] Topic paths verified against the live system (update 5.5) (confirmed over cloud; both MPPTs report)
 - [x] Cloud MQTT: broker index, TLS, token login, error status (still to check on the device; can be tested at home by entering home WiFi as trailer WiFi)
-- [x] Local first with cloud fallback, and switching back to local (still to check at the trailer: on cloud, turn the hotspot on and it switches within about 2 minutes)
+- [x] Local first with cloud fallback, and switching back to local (changed to one WiFi, see 5.1 and 5.3; still to check at the trailer: local connects via `venus.local`, and if the Cerbo is briefly unreachable it goes to cloud and back to local within about 2 minutes)
 - [x] Overview screen, including Shore/Generator last used (still to check on the device with live data)
 - [x] Battery, Solar, AC, Alarms, Settings screens (still to check on the device)
 - [x] Bottom nav and alarm dot (still to check on the device)
@@ -302,3 +306,7 @@ All settings saved in NVS.
 | 2026-11-22 | Item 11 built, with a change of plan logged in 5.6: freshness is judged for the whole system (link up and any message in the last 30s) instead of per value group, because the Cerbo only publishes on change and steady groups would grey out falsely. The rejected alternative (a full republish every 30s) would cost cloud data. Stale or disconnected data stays on screen in grey with an amber NO CONNECTION / STALE / NO DATA marker. Chosen by Sabrina "for now"; revisit after item 5 if needed. |
 | 2026-11-22 | Item 13 built, finishing items 9 and 10: Quattro and battery alarms (0/1/2, Quattro L1 copies merged) and MPPT error codes (non-zero = alarm) are kept in the data layer with readable names; Alarms screen from the mockup; the dot shows any alarm, warning or low SOC; a new or worse device alarm wakes the screen and shows Alarms once. "Since" is shown as a duration, since the display has no clock. Alarms now greys out when data is stale. Corrected 5.5: ErrorCode is an error number, not 0/1/2. |
 | 2026-11-22 | Pre-flash review fixes: taps on the active-page bar or the alarm dot in the nav, and on the Data source text or chevron in Settings, were caught by non-interactive containers and did nothing; those containers no longer take taps. Labels that end in "..." no longer redraw every 500 ms. The Alarms "tap for more" line now changes page at once. The net task logs its spare stack after subscribing, to confirm on the device that 12 KB is enough for TLS. |
+| 2026-11-22 | Item 5 mostly done from the first cloud boot log: every 5.5 path confirmed (notes in 5.5). Solar power below zero now shows 0. LVGL memory 72% used, net task 8.9 KB stack spare. `logs/` added to .gitignore. Passenger MPPT still to confirm. |
+| 2026-11-22 | Item 5 done: Passenger MPPT confirmed. New USB side setting (6.8): Left turns the screen 180 degrees, saved as `flip`; touch is mirrored so no recalibration is needed. Settings rows tightened to fit five. |
+| 2026-11-22 | One WiFi instead of two (Sabrina: the Cerbo is on the trailer WiFi, no need for both). Setup has one WiFi, a Cerbo address (default `venus.local`, looked up over mDNS) and VRM. Each attempt joins the WiFi, tries the Cerbo directly, then VRM over the same WiFi. While on cloud, a connection check to the Cerbo every 2 minutes (backing off as before) replaces the hotspot scan, and switching keeps the WiFi up. Old hotspot settings carry over. New status texts: "Cerbo not found on WiFi", "Cerbo broker" / "VRM broker not reachable". Sections 1, 3, 5.1-5.3, 6.9 updated. |
+| 2026-11-22 | Fixes from the first device run: the board crashed in a loop when the Cerbo address didn't resolve (MQTT client cleanup before any connect); Settings controls were drawn off to the right and low, clipped to their last button (seen in a photo), now laid out as a flex row. |

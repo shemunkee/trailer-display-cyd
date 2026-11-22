@@ -113,6 +113,11 @@ static void setAlarm(AlarmDevice dev, int inst, const char* name, int variant, i
 }
 
 static void setNum(float& field, const Value& v) { field = v.present && !v.isString ? v.num : NAN; }
+// Solar power reads a few watts below zero at night (seen: -5.7 W); show 0
+static void setPower(float& field, const Value& v) {
+  setNum(field, v);
+  if (field < 0) field = 0;
+}
 static void setCode(int& field, const Value& v) { field = v.present && !v.isString ? (int)v.num : -1; }
 
 void victron_data_on_message(const char* path, const uint8_t* payload, unsigned len) {
@@ -136,7 +141,7 @@ void victron_data_on_message(const char* path, const uint8_t* payload, unsigned 
     else if (!strcmp(rest, "Dc/Battery/Current")) setNum(data.battAmps, v), group = GROUP_BATTERY;
     else if (!strcmp(rest, "Dc/Battery/Power")) setNum(data.battWatts, v), group = GROUP_BATTERY;
     else if (!strcmp(rest, "Dc/Battery/TimeToGo")) setNum(data.timeToGoSec, v), group = GROUP_BATTERY;
-    else if (!strcmp(rest, "Dc/Pv/Power")) setNum(data.pvWatts, v), group = GROUP_SOLAR;
+    else if (!strcmp(rest, "Dc/Pv/Power")) setPower(data.pvWatts, v), group = GROUP_SOLAR;
     else if (!strcmp(rest, "Ac/ActiveIn/Source")) setCode(data.acSource, v), group = GROUP_AC;
     else if (!strcmp(rest, "Ac/Grid/L1/Power")) setNum(data.gridWatts, v), group = GROUP_AC;
     else if (!strcmp(rest, "Ac/Genset/L1/Power")) setNum(data.gensetWatts, v), group = GROUP_AC;
@@ -149,7 +154,7 @@ void victron_data_on_message(const char* path, const uint8_t* payload, unsigned 
     if (m) {
       group = GROUP_SOLAR;
       if (!strcmp(rest, "CustomName")) strlcpy(m->name, v.isString ? v.str : "", sizeof(m->name));
-      else if (!strcmp(rest, "Yield/Power")) setNum(m->power, v);
+      else if (!strcmp(rest, "Yield/Power")) setPower(m->power, v);
       else if (!strcmp(rest, "Pv/V")) setNum(m->pvVolts, v);
       else if (!strcmp(rest, "History/Daily/0/Yield")) setNum(m->yieldTodayKwh, v);
       else if (!strcmp(rest, "State")) setCode(m->state, v);
