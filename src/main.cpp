@@ -1,5 +1,5 @@
 // CYD Victron display (see SPEC.md)
-// Built so far: display, touch with saved calibration, settings in NVS, setup portal, local MQTT.
+// Built so far: display, touch with saved calibration, settings in NVS, setup portal, local MQTT, snooze.
 
 #include <Arduino.h>
 #include <lvgl.h>
@@ -11,6 +11,7 @@
 #include "net_config.h"
 #include "settings.h"
 #include "setup_portal.h"
+#include "snooze.h"
 #include "touch.h"
 
 static bool setupMode = false;
@@ -45,6 +46,9 @@ void setup() {
   else {
     mqtt_local_begin();
     demo_screen_create();
+#ifndef WOKWI  // no touch in the simulator, so nothing could wake it
+    snooze_begin();
+#endif
   }
 }
 

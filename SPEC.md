@@ -1,6 +1,6 @@
 # CYD Victron Display: Build Spec
 
-**Status:** v1 in progress (checklist items 1-4 built)
+**Status:** v1 in progress (checklist items 1-4 and 12 built)
 **Owner:** Sabrina
 **Last updated:** 2026-11-22
 
@@ -183,9 +183,11 @@ All settings saved in NVS.
 
 ### 6.10 Snooze and logo
 
-* After the snooze time with no touch: show the logo for 3s, then backlight off
+* After the snooze time with no touch: flash the logo for 1s, then backlight off
 * WiFi and MQTT stay connected while snoozed
 * Any tap wakes it and returns to the last screen. A tap during the logo cancels the snooze.
+* The waking tap only wakes the screen; it never presses a button underneath
+* No snooze on the setup screen (the QR codes need to stay visible) or in the Wokwi build (no touch to wake it)
 * Logo: `include/logo_rgb565.h`, 320x240 RGB565 on black, in PROGMEM
 
 ### 6.11 Alerts
@@ -234,7 +236,7 @@ All settings saved in NVS.
 - [ ] Battery, Solar, AC, Alarms, Settings screens
 - [ ] Bottom nav and alarm dot
 - [ ] Stale data handling
-- [ ] Snooze with logo
+- [x] Snooze with logo (still to check on the device)
 - [ ] Low SOC and alarm alerts
 - [ ] On device check: nothing cut off, all text readable
 
@@ -249,4 +251,5 @@ All settings saved in NVS.
 | 2026-11-21 | Setup portal confirmed on the device (`cyd_ili9341`): QR join, captive page, save and restart with masked log, rerun prefill and Saved/Replace, Cancel. |
 | 2026-11-21 | Items 1-2 fully confirmed on the device: touch calibration and demo screen settings survive a power cycle. |
 | 2026-11-22 | Item 4 built: local MQTT (`src/mqtt_local.cpp`). Scans for and joins the hotspot (15s), connects with optional GX username/password, finds the portal ID (discovery first, setup ID fallback), subscribes to the 5.5 paths plus `full_publish_completed`, keepalive as above. A single publish function refuses anything not starting with `R/`. Serial log prints the first value seen per 5.5 path and lists missing paths after each full publish, to help with item 5; portal IDs are masked in logs. Status shows on the demo screen. Added the optional GX username (`mq_user`) to setup. Updated 5.1 and 5.4 from the dbus-flashmq README. |
+| 2026-11-22 | Item 12 built: snooze (`src/snooze.cpp`). Logo now flashes for 1s instead of 3s before the backlight turns off. The logo is drawn by LVGL from flash on the top layer, and also catches the waking tap so nothing underneath is pressed. Uses LVGL's inactivity timer and the Snooze setting, so changes take effect immediately. `snooze_wake()` is ready for alarms (item 13). Flash use 48%. |
 | 2026-11-22 | Added OTA updates from GitHub Releases, with on-screen approval and signed firmware, to Later. Planned for when Dad's unit is built. |
