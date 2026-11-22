@@ -40,6 +40,7 @@ static void tick(lv_timer_t*) {
   switch (state) {
     case State::Awake:
       if (lv_display_get_inactive_time(nullptr) >= settings_get().snoozeSec * 1000UL) {
+        lv_obj_move_foreground(cover);  // above anything else on the top layer, like the Data source menu
         lv_obj_remove_flag(cover, LV_OBJ_FLAG_HIDDEN);
         logoShownAt = millis();
         state = State::Logo;

@@ -37,4 +37,4 @@ struct LinkStatus {
 
 void mqtt_link_begin();  // starts the network task
 LinkStatus mqtt_link_status();
-void mqtt_link_status_text(char* buf, size_t len);
+void mqtt_link_status_text(char* buf, size_t len);  // short, without the mode

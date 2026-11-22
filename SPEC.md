@@ -1,6 +1,6 @@
 # CYD Victron Display: Build Spec
 
-**Status:** v1 in progress (checklist items 1-4, 6 and 12 built)
+**Status:** v1 in progress (checklist items 1-4, 6-8 and 12 built; 9 and 10 in part)
 **Owner:** Sabrina
 **Last updated:** 2026-11-22
 
@@ -72,7 +72,7 @@ Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance 
 
 1. On boot, try local mode (scan for the hotspot SSID, try to connect for up to about 15s)
 2. If that fails, try cloud mode. (Built: each connection attempt scans once, uses the hotspot if it's in range, otherwise the trailer WiFi. Losing the connection starts a new attempt.)
-3. While in cloud mode, scan for the hotspot every 2 minutes. If it's found, switch to local. (Not built yet: item 7.)
+3. While in cloud mode, scan for the hotspot every 2 minutes. If it's found, switch to local. The scan runs without dropping the cloud connection. If the hotspot is in range but local fails (it falls back to cloud), each failure doubles the wait between rescans, up to 30 minutes, so a hotspot without a working broker doesn't keep knocking cloud offline. A working local connection resets it to 2 minutes.
 4. If neither works, show the last known values greyed out with a "No connection" status, and keep retrying
 5. Show the current source (Local or Cloud) on the Settings screen Data source row
 
@@ -122,7 +122,9 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 
 * Black background
 * 12px padding around the edge, 8px between blocks, 8px inside cards
-* Type scale: 10px labels, 12px row text, 14px row values, 18px tile values, larger only for hero numbers (SOC)
+* Type scale: 10px labels, 12px row text, 14px row values, 18px tile values, larger only for hero numbers (SOC, 24px as in the Overview mockup)
+* Built-in LVGL fonts have no `·`, so the middle dot is LVGL's bullet symbol
+* Until data arrives a value shows `--`, never a made-up number
 * Cards: `#111318`, 8px radius
 * Colors: text `#F2F2F5`, muted `#9AA0B4`, divider `#23262F`, solar pink `#F0457E`, AC blue `#7C88F7`, charging green `#3FCF8E`, generator orange `#FF8A3D`, warning amber `#F5A524`, alarm red `#FF5A5F`
 * Nothing gets cut off at the edges. Check on the real screen, since the CYD's fonts render differently from the mockups.
@@ -133,13 +135,18 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 * Active screen: card background behind the icon plus a blue bar on top
 * Red dot on the Alarms icon when any alarm or warning is active
 * No swipes. Taps only (resistive touch).
+* Icons are the mockup's line icons, drawn into 20px alpha bitmaps by `tools/make_icons.py` (`include/nav_icons.h`) and colored at runtime (white active, muted otherwise)
+* Screens are built once and shown or hidden, so switching and waking are instant. Values refresh every 500 ms.
+* Until item 9, Battery, Solar, AC and Alarms open a "Coming soon" page. Until item 13, the Alarms dot only shows low SOC.
 
 ### 6.3 Overview
 
 * Left column: AC input tile on top, Solar tile below
-* Center: SOC ring, color by state (green charging, normal text discharging, amber at or below the low SOC setting)
-* Right column: AC loads tile on top, Quattro state tile below
-* **AC input tile:** shows SHORE or GENERATOR, whichever is live, with watts. Generator in orange. When neither is live, show the last one used with "Off · last used" in grey. Save the last used source in NVS so it survives a reboot.
+* Center: SOC ring, 88px, filling to the SOC like a gauge, with SOC %, battery watts (`+` and green while charging) and voltage inside. Color by state: green charging, normal text discharging, amber at or below the low SOC setting (amber wins). Charging means battery power above 0.
+* Right column: AC loads tile on top (watts, Quattro AC out amps below), Quattro state tile below
+* **Quattro tile:** Charging (for Bulk, Absorption, Float, Storage, Equalize), Inverting, Passthru, Off, Fault (red), and so on. Below: the input limit while an AC input is live, otherwise the charge phase while charging, otherwise blank.
+* **Solar tile:** total solar watts, and kWh today added up over all MPPTs
+* **AC input tile:** shows SHORE or GENERATOR, whichever is live, with watts. Generator in orange. When neither is live, show the last one used with "Off · last used" in grey. Save the last used source in NVS so it survives a reboot. Active input Source 1 (Grid) or 3 (Shore) counts as SHORE, with power from `Ac/Grid`; 2 is GENERATOR, with power from `Ac/Genset`. Live shore shows blue with "Connected", generator orange with "Running". Before the first value it shows the saved source with `--`.
 
 ### 6.4 Battery
 
@@ -168,6 +175,10 @@ Four rows:
 | Brightness | Steps of 10% | 70% |
 | Data source | Shows Local or Cloud and status. Tap opens: Run setup, Recalibrate touch | Auto |
 
+* Layout as in the Settings mockup: one card per row, − / + buttons for Low SOC and Brightness, five buttons for Snooze with the chosen one in blue
+* Data source shows Local or Cloud (green when live, amber while connecting or failing, "No connection" in grey) with a short status below, such as "Live, 22/24 paths" or "VRM token rejected"
+* The Data source menu is a card over a dimmed screen with Run setup (restarts into setup), Recalibrate touch, and Close
+
 All settings saved in NVS.
 
 ### 6.9 Setup (first boot, or Run setup)
@@ -178,7 +189,7 @@ All settings saved in NVS.
 * The page collects: Cerbo hotspot SSID and password, local broker host/port (prefilled), optional GX username and password, trailer WiFi SSID and password, VRM portal ID, VRM email, VRM token
 * Saved secrets are never sent back to the page. Show "Saved" with a Replace option.
 * On save: store in NVS, shut down the setup network, restart
-* Opens on boot when no WiFi (hotspot or trailer) is saved, or after Run setup (sets an NVS flag and restarts). Until the Settings screen exists, the demo screen has a Run setup button.
+* Opens on boot when no WiFi (hotspot or trailer) is saved, or after Run setup (sets an NVS flag and restarts). Run setup is in Settings → Data source.
 * When rerunning setup, non-secret values (SSIDs, broker host/port, portal ID, VRM email) are prefilled. Passwords, GX password and token only show "Saved" / Replace; a blank field keeps the saved value.
 * A Cancel button (shown only when settings already exist) restarts without saving
 * The page checks: at least one WiFi, port 1-65535, WiFi passwords 8+ characters; warns if trailer WiFi is set without the VRM portal ID, email and token. A pasted `Token ` prefix is stripped.
@@ -233,10 +244,10 @@ All settings saved in NVS.
 - [x] Local MQTT: connect, portal ID discovery, keepalive (still to check at the trailer: join, connect, portal ID, paths seen, keepalive every 30s)
 - [ ] Topic paths verified against the live system (update 5.5)
 - [x] Cloud MQTT: broker index, TLS, token login, error status (still to check on the device; can be tested at home by entering home WiFi as trailer WiFi)
-- [ ] Local first with cloud fallback, and switching back to local
-- [ ] Overview screen, including Shore/Generator last used
-- [ ] Battery, Solar, AC, Alarms, Settings screens
-- [ ] Bottom nav and alarm dot
+- [x] Local first with cloud fallback, and switching back to local (still to check at the trailer: on cloud, turn the hotspot on and it switches within about 2 minutes)
+- [x] Overview screen, including Shore/Generator last used (still to check on the device with live data)
+- [ ] Battery, Solar, AC, Alarms, Settings screens (Settings built, still to check on the device)
+- [ ] Bottom nav and alarm dot (nav built; the dot shows low SOC only until item 13)
 - [ ] Stale data handling
 - [x] Snooze with logo (still to check on the device)
 - [ ] Low SOC and alarm alerts
@@ -257,3 +268,5 @@ All settings saved in NVS.
 | 2026-11-22 | Item 6 built: cloud MQTT. `src/mqtt_local.*` became `src/mqtt_link.*`, one task handling both modes with the same subscriptions, keepalive and logging. Cloud: broker `mqttN.victronenergy.com:8883` from the portal ID, TLS verified with the Victron CA (`include/venus_ca.h`), login VRM email + `Token <token>`, "Cloud: VRM token rejected" on MQTT refusal (4/5), TLS errors logged. Email and token masked in logs. Interim local/cloud choice per attempt (see 5.3); switching back while on cloud is item 7. Flash use 51%. |
 | 2026-11-22 | Added OTA updates from GitHub Releases, with on-screen approval and signed firmware, to Later. Planned for when Dad's unit is built. |
 | 2026-11-22 | Setup network renamed `Victron_CYD` (was `CYD-Setup`). Its password is no longer new each time: it's generated once per device with the hardware RNG, saved as `net/ap_pass` and reused, so it stays out of source. Erasing flash makes a new one. |
+| 2026-11-22 | Item 7 built: while on cloud, a background scan every 2 minutes looks for the hotspot and switches to local when it's in range. Failed local attempts with the hotspot visible back the rescan off (2, 4, 8, 16, then 30 min max). |
+| 2026-11-22 | Item 8 built, and Settings plus the bottom nav from items 9-10. New data layer (`src/victron_data.*`): the MQTT task parses each 5.5 value into one shared set, with a last-update time per group (battery, solar, AC, Quattro) for item 11; MPPTs are kept by instance and carry their CustomName. Overview, Settings and the nav follow the mockups (details in 6.1-6.3, 6.8). The demo screen is gone; the device boots into Overview. Fonts: Montserrat 24 added for the SOC ring, 40 dropped. Flash use 50%. |

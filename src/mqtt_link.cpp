@@ -7,6 +7,7 @@
 
 #include "net_config.h"
 #include "venus_ca.h"
+#include "victron_data.h"
 
 static constexpr uint32_t JOIN_TIMEOUT_MS = 15000;    // SPEC 5.3
 static constexpr uint32_t DISCOVERY_MS = 10000;
@@ -14,6 +15,8 @@ static constexpr uint32_t KEEPALIVE_MS = 30000;       // broker timeout is 60 s
 static constexpr uint32_t RETRY_MIN_MS = 5000;
 static constexpr uint32_t RETRY_MAX_MS = 60000;
 static constexpr uint32_t UNSEEN_REPORT_MS = 60000;
+static constexpr uint32_t RESCAN_MS = 120000;           // SPEC 5.3 step 3
+static constexpr uint32_t RESCAN_MAX_MS = 30 * 60000;   // cap after repeated local failures
 static constexpr uint16_t CLOUD_PORT = 8883;
 static constexpr unsigned long TLS_HANDSHAKE_S = 15;
 
@@ -59,6 +62,8 @@ static String portalId;     // the one in use this session
 static String discoveredId;
 static String cloudHost;
 static uint32_t lastKeepalive = 0, lastUnseenReport = 0;
+static uint32_t lastRescan = 0;
+static uint8_t localFailStreak = 0;  // hotspot in range but local didn't connect
 
 // ---------- status, shared with the UI task ----------
 
@@ -79,32 +84,25 @@ LinkStatus mqtt_link_status() {
   return s;
 }
 
+// Short status for the Settings Data source row; the mode (Local/Cloud) is shown separately
 void mqtt_link_status_text(char* buf, size_t len) {
   LinkStatus s = mqtt_link_status();
-  const char* m = s.mode == LinkMode::Cloud ? "Cloud" : "Local";
   bool cloud = s.mode == LinkMode::Cloud;
   switch (s.state) {
-    case LinkState::Off: snprintf(buf, len, "Data: off"); break;
+    case LinkState::Off: snprintf(buf, len, "Off"); break;
     case LinkState::NoNetwork: snprintf(buf, len, "No network saved in setup"); break;
     case LinkState::Scanning: snprintf(buf, len, "Looking for networks"); break;
     case LinkState::NetworkMissing: snprintf(buf, len, "No saved network in range"); break;
-    case LinkState::NoCloudConfig: snprintf(buf, len, "Cloud: VRM details missing in setup"); break;
-    case LinkState::Joining: snprintf(buf, len, "%s: joining %s", m, cloud ? "trailer WiFi" : "hotspot"); break;
-    case LinkState::JoinFailed: snprintf(buf, len, "%s: couldn't join WiFi, check password", m); break;
-    case LinkState::Connecting: snprintf(buf, len, "%s: connecting to broker", m); break;
-    case LinkState::LoginRejected:
-      snprintf(buf, len, cloud ? "Cloud: VRM token rejected" : "Local: broker rejected GX login");
-      break;
-    case LinkState::ConnectFailed: snprintf(buf, len, "%s: broker not reachable (%d)", m, s.mqttRc); break;
-    case LinkState::FindingPortal: snprintf(buf, len, "%s: finding portal ID", m); break;
-    case LinkState::NoPortal: snprintf(buf, len, "%s: portal ID not found, add it in setup", m); break;
-    case LinkState::Loading:
-      snprintf(buf, len, "%s: loading, %u/%u paths", m, s.pathsSeen, s.pathsTotal);
-      break;
-    case LinkState::Live:
-      snprintf(buf, len, "%s: live, %u/%u paths, keepalive %lus ago", m, s.pathsSeen, s.pathsTotal,
-               (unsigned long)((millis() - s.lastKeepaliveMs) / 1000));
-      break;
+    case LinkState::NoCloudConfig: snprintf(buf, len, "VRM details missing in setup"); break;
+    case LinkState::Joining: snprintf(buf, len, "Joining %s", cloud ? "trailer WiFi" : "hotspot"); break;
+    case LinkState::JoinFailed: snprintf(buf, len, "Couldn't join WiFi"); break;
+    case LinkState::Connecting: snprintf(buf, len, "Connecting"); break;
+    case LinkState::LoginRejected: snprintf(buf, len, cloud ? "VRM token rejected" : "GX login rejected"); break;
+    case LinkState::ConnectFailed: snprintf(buf, len, "Broker not reachable (%d)", s.mqttRc); break;
+    case LinkState::FindingPortal: snprintf(buf, len, "Finding portal ID"); break;
+    case LinkState::NoPortal: snprintf(buf, len, "Portal ID missing in setup"); break;
+    case LinkState::Loading: snprintf(buf, len, "Loading, %u/%u paths", s.pathsSeen, s.pathsTotal); break;
+    case LinkState::Live: snprintf(buf, len, "Live, %u/%u paths", s.pathsSeen, s.pathsTotal); break;
   }
 }
 
@@ -203,6 +201,8 @@ static void onMessage(char* topicRaw, byte* payload, unsigned int len) {
     reportUnseen(true);
     return;
   }
+
+  victron_data_on_message(path.c_str(), payload, len);
 
   for (int i = 0; i < PATH_COUNT; i++) {
     if (seen[i] || !matches(PATHS[i], path.c_str())) continue;
@@ -329,13 +329,16 @@ static bool findPortal() {
   return true;
 }
 
-// One attempt: hotspot first (SPEC 5.3 steps 1-2), else trailer WiFi + VRM.
-// Rescanning while on cloud to switch back is checklist item 7.
+// One attempt: hotspot first (SPEC 5.3 steps 1-2), else trailer WiFi + VRM
 static bool connectOnce() {
   ScanResult r = scan();
   if (r.hotspot) {
     mode = LinkMode::Local;
-    if (join(cfg.hotspotSsid, cfg.hotspotPass) && connectLocal() && findPortal()) return true;
+    if (join(cfg.hotspotSsid, cfg.hotspotPass) && connectLocal() && findPortal()) {
+      localFailStreak = 0;
+      return true;
+    }
+    if (localFailStreak < 255) localFailStreak++;
     mqtt.disconnect();
     WiFi.disconnect(true);
   }
@@ -348,6 +351,7 @@ static bool connectOnce() {
     }
     if (join(cfg.wifiSsid, cfg.wifiPass) && connectCloud()) {
       portalId = cfg.portalId;
+      lastRescan = millis();
       return true;
     }
     mqtt.disconnect();
@@ -373,6 +377,24 @@ static void subscribeAll() {
                 PATH_COUNT);
 }
 
+// While on cloud (SPEC 5.3 step 3): every 2 min, look for the hotspot without
+// dropping the connection. Each failed local attempt with the hotspot in range
+// doubles the wait (up to 30 min), so a hotspot without a working broker
+// doesn't keep knocking cloud mode offline.
+static bool shouldSwitchToLocal() {
+  if (mode != LinkMode::Cloud || cfg.hotspotSsid.isEmpty()) return false;
+  uint32_t wait = RESCAN_MS << min<uint8_t>(localFailStreak, 4);
+  if (wait > RESCAN_MAX_MS) wait = RESCAN_MAX_MS;
+  if (millis() - lastRescan < wait) return false;
+  lastRescan = millis();
+  int n = WiFi.scanNetworks();
+  bool found = false;
+  for (int i = 0; i < n && !found; i++) found = WiFi.SSID(i) == cfg.hotspotSsid;
+  WiFi.scanDelete();
+  if (found) Serial.println("Cloud: hotspot in range, switching to local");
+  return found;
+}
+
 // ---------- task ----------
 
 static void netTask(void*) {
@@ -390,9 +412,11 @@ static void netTask(void*) {
       mqtt.loop();
       if (millis() - lastKeepalive > KEEPALIVE_MS) sendKeepalive(false);
       if (millis() - lastUnseenReport > UNSEEN_REPORT_MS) reportUnseen(false);
+      if (shouldSwitchToLocal()) break;
       vTaskDelay(pdMS_TO_TICKS(2));
     }
-    Serial.printf("%s: connection lost\n", mode == LinkMode::Cloud ? "Cloud" : "Local");
+    if (mqtt.connected() && WiFi.status() == WL_CONNECTED) Serial.println("Cloud: disconnecting");
+    else Serial.printf("%s: connection lost\n", mode == LinkMode::Cloud ? "Cloud" : "Local");
     mqtt.disconnect();
     WiFi.disconnect(true);
   }
