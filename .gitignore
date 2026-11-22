@@ -1,0 +1,10 @@
+# PlatformIO build output and downloaded libraries
+.pio/
+
+# Editor files PlatformIO generates per machine
+.vscode/
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini

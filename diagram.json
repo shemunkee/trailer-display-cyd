@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "author": "Victron_CYD_Shemunkee",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-ili9341", "id": "lcd", "top": -40, "left": 220, "rotate": 90, "attrs": {} }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "lcd:VCC", "esp:3V3", "red", [] ],
+    [ "lcd:GND", "esp:GND.1", "black", [] ],
+    [ "lcd:CS", "esp:15", "green", [] ],
+    [ "lcd:RST", "esp:3V3", "red", [] ],
+    [ "lcd:D/C", "esp:2", "blue", [] ],
+    [ "lcd:MOSI", "esp:13", "orange", [] ],
+    [ "lcd:SCK", "esp:14", "yellow", [] ],
+    [ "lcd:LED", "esp:21", "white", [] ],
+    [ "lcd:MISO", "esp:12", "purple", [] ]
+  ]
+}
