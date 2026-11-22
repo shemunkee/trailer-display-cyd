@@ -46,7 +46,19 @@ static bool dimmed = false;
 void ui_set_dim(bool dim) { dimmed = dim; }
 uint32_t ui_color(uint32_t c) { return dimmed ? MUTED : c; }
 
+// Compared against a hash of the text we last set, kept in the label's user
+// data: a "..." label (LV_LABEL_LONG_DOT) rewrites its own text when it doesn't
+// fit, so comparing with lv_label_get_text() would reset it every tick
+static uintptr_t textHash(const char* s) {
+  uint32_t h = 2166136261u;  // FNV-1a
+  while (*s) h = (h ^ (uint8_t)*s++) * 16777619u;
+  return h | 1;  // never 0, which means "not set through here yet"
+}
+
 void ui_set_text(lv_obj_t* l, const char* s) {
+  uintptr_t h = textHash(s);
+  if ((uintptr_t)lv_obj_get_user_data(l) == h) return;
+  lv_obj_set_user_data(l, (void*)h);
   if (strcmp(lv_label_get_text(l), s) != 0) lv_label_set_text(l, s);
 }
 

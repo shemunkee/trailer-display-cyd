@@ -51,6 +51,9 @@ static lv_obj_t* controls(lv_obj_t* r) {
   lv_obj_set_style_pad_column(g, 4, 0);
   lv_obj_align(g, LV_ALIGN_RIGHT_MID, 0, 0);
   lv_obj_remove_flag(g, LV_OBJ_FLAG_SCROLLABLE);
+  // Not clickable, so a tap between buttons (or on the Data source text and
+  // chevron) goes to the row underneath
+  lv_obj_remove_flag(g, LV_OBJ_FLAG_CLICKABLE);
   return g;
 }
 
@@ -224,10 +227,10 @@ void settings_screen_update() {
   LinkStatus s = mqtt_link_status();
   const char* mode = s.mode == LinkMode::Cloud ? "Cloud" : s.mode == LinkMode::Local ? "Local" : "No connection";
   uint32_t color = s.state == LinkState::Live ? CHARGE : s.mode == LinkMode::None ? MUTED : WARN;
-  if (strcmp(lv_label_get_text(modeLabel), mode)) lv_label_set_text(modeLabel, mode);
+  ui_set_text(modeLabel, mode);
   if (!lv_color_eq(lv_obj_get_style_text_color(modeLabel, 0), lv_color_hex(color)))
     lv_obj_set_style_text_color(modeLabel, lv_color_hex(color), 0);
   char buf[48];
   mqtt_link_status_text(buf, sizeof(buf));
-  if (strcmp(lv_label_get_text(statusLabel), buf)) lv_label_set_text(statusLabel, buf);
+  ui_set_text(statusLabel, buf);
 }

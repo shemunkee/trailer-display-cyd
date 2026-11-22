@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "nav.h"
 #include "settings.h"
 #include "theme.h"
 #include "ui.h"
@@ -66,6 +67,7 @@ static Card makeCard(lv_obj_t* page, int y) {
 static void onPager(lv_event_t*) {
   int pages = (itemCount + SHOWN - 1) / SHOWN;
   if (pages > 1) pageIndex = (pageIndex + 1) % pages;
+  nav_refresh();  // show the next cards now, not up to 500 ms later
 }
 
 void alarms_screen_create(lv_obj_t* page) {

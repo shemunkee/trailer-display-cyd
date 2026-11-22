@@ -376,6 +376,8 @@ static void subscribeAll() {
   sendKeepalive(true);
   Serial.printf("%s: subscribed to %d paths, keepalive sent\n", mode == LinkMode::Cloud ? "Cloud" : "Local",
                 PATH_COUNT);
+  // For bring-up: how close the net task came to its stack limit (TLS is the hungry part)
+  Serial.printf("Net: task stack %u bytes spare\n", (unsigned)uxTaskGetStackHighWaterMark(nullptr));
 }
 
 // While on cloud (SPEC 5.3 step 3): every 2 min, look for the hotspot without

@@ -10,3 +10,4 @@ enum class Page { Overview, Battery, Solar, Ac, Alarms, Settings, Count };
 
 void nav_begin();  // builds every screen and shows Overview
 void nav_show(Page p);
+void nav_refresh();  // redraw the screens on the next LVGL pass instead of waiting for the timer

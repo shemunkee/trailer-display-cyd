@@ -37,6 +37,7 @@ static lv_obj_t* staleMarker;  // NO CONNECTION / STALE / NO DATA, top right on 
 static const char* staleText = nullptr;
 static lv_image_dsc_t iconDsc[PAGE_COUNT];
 static Page current = Page::Overview;
+static lv_timer_t* updateTimer;
 
 static const uint8_t* const ICON_DATA[PAGE_COUNT] = {
     nav_icon_home, nav_icon_battery, nav_icon_solar, nav_icon_ac, nav_icon_alarms, nav_icon_settings,
@@ -67,6 +68,10 @@ void nav_show(Page p) {
     if (on) lv_obj_remove_flag(buttons[i].bar, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(buttons[i].bar, LV_OBJ_FLAG_HIDDEN);
   }
+}
+
+void nav_refresh() {
+  if (updateTimer) lv_timer_ready(updateTimer);
 }
 
 static void onNav(lv_event_t* e) { nav_show((Page)(intptr_t)lv_event_get_user_data(e)); }
@@ -123,6 +128,7 @@ static void buildBar(lv_obj_t* scr) {
 
     b.bar = lv_obj_create(b.btn);
     lv_obj_remove_style_all(b.bar);
+    lv_obj_remove_flag(b.bar, LV_OBJ_FLAG_CLICKABLE);  // taps go to the button
     lv_obj_set_size(b.bar, 22, 2);
     lv_obj_set_style_radius(b.bar, 1, 0);
     lv_obj_set_style_bg_opa(b.bar, LV_OPA_COVER, 0);
@@ -132,6 +138,7 @@ static void buildBar(lv_obj_t* scr) {
 
   alarmDot = lv_obj_create(buttons[(int)Page::Alarms].btn);
   lv_obj_remove_style_all(alarmDot);
+  lv_obj_remove_flag(alarmDot, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(alarmDot, 7, 7);
   lv_obj_set_style_radius(alarmDot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_opa(alarmDot, LV_OPA_COVER, 0);
@@ -204,7 +211,7 @@ void nav_begin() {
   lv_obj_add_flag(staleMarker, LV_OBJ_FLAG_HIDDEN);
   nav_show(Page::Overview);
   onUpdate(nullptr);
-  lv_timer_create(onUpdate, UPDATE_MS, nullptr);
+  updateTimer = lv_timer_create(onUpdate, UPDATE_MS, nullptr);
 
   lv_mem_monitor_t mon;
   lv_mem_monitor(&mon);
