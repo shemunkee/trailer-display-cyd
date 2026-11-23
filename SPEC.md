@@ -327,3 +327,4 @@ All settings saved in NVS.
 | 2026-11-22 | Updates install automatically (5.7), Sabrina's call so Dad never has to do anything: checked a minute after boot and daily, installed the next time the screen sleeps, quietly in the dark. Manual Check / Install stays. Signing, no-downgrade and rollback unchanged. Test releases go to a separate test board by USB, no test channel. |
 | 2026-11-22 | 1.0.1 installed over WiFi on Sabrina's board (first OTA confirmed on the device). Firmware 1.0.2: automatic updates. |
 | 2026-11-22 | Firmware 1.0.3: snooze logo back to the original colors, cropped (69 KB; about 350 KB free in each firmware slot). The one-color logo showed only a black screen on the device; snooze now logs what it does to help find out why if it recurs. |
+| 2026-11-22 | Added README.md (build, flash, release, Wokwi) and docs/SETUP.md (end user setup guide for a new display). |
