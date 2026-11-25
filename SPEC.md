@@ -328,3 +328,4 @@ All settings saved in NVS.
 | 2026-11-22 | 1.0.1 installed over WiFi on Sabrina's board (first OTA confirmed on the device). Firmware 1.0.2: automatic updates. |
 | 2026-11-22 | Firmware 1.0.3: snooze logo back to the original colors, cropped (69 KB; about 350 KB free in each firmware slot). The one-color logo showed only a black screen on the device; snooze now logs what it does to help find out why if it recurs. |
 | 2026-11-22 | Added README.md (build, flash, release, Wokwi) and docs/SETUP.md (end user setup guide for a new display). |
+| 2026-11-25 | docs/SETUP.md aligned with the firmware: exact screen and status texts, GX password optional (the display falls back to VRM when it can't read the Cerbo directly, no profile is required), troubleshooting by status line, STALE / NO DATA / NO CONNECTION markers, update check timing. README release steps now say to push before creating the release and to test on a separate test board. No firmware change. |

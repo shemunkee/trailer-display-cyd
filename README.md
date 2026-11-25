@@ -78,8 +78,12 @@ Displays install new releases on their own the next time the screen goes to slee
 
 **Making a release**
 
-1. Test the change on your own board by USB first.
-2. Bump `FW_VERSION` in `include/version.h` (for example `1.0.3` to `1.0.4`) and commit.
+1. Test the change by USB on a separate test board first (there's no test channel; a published release goes to every display).
+2. Bump `FW_VERSION` in `include/version.h` (for example `1.0.3` to `1.0.4`), commit, and push:
+   ```
+   git push
+   ```
+   Push before creating the release, so the release tag points at this commit.
 3. Build and sign both board types:
    ```
    python tools/make_release.py
@@ -107,7 +111,7 @@ Then start the simulator from the Wokwi extension. It reads `wokwi.toml` and `di
 |---|---|
 | `src/` | Firmware: screens, MQTT link, setup portal, OTA |
 | `include/` | Shared headers: version, certificates, OTA public key, logo, icons |
-| `tools/` | Helper scripts: release signing, key generation, logo and icon builders |
+| `tools/` | Helper scripts: release signing, key generation, logo and icon builders, update certificate list |
 | `platformio.ini` | Build settings and the three builds (`cyd_ili9341`, `cyd_st7789`, `wokwi`) |
 | `partitions_ota.csv` | Flash layout with two firmware slots for OTA |
 | `SPEC.md` | What the device does, decisions and change log |
