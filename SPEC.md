@@ -1,8 +1,8 @@
 # CYD Victron Display: Build Spec
 
-**Status:** v1 in progress (checklist items 1-13 built, 5 confirmed on the live system; 14 is the on-device check)
+**Status:** v1 in progress (checklist items 1-13 built, 5 confirmed on the live system; 14 is the on-device check). Tanks (LPG) built in 1.0.4, to check on the device.
 **Owner:** Sabrina
-**Last updated:** 2026-11-22
+**Last updated:** 2026-11-25
 
 > **For Claude Code:** This file is the source of truth for what the device does. Read it before every task. When a decision changes or a feature ships, update this file in the same change: edit the relevant section, tick the checklist, and add a line to the Change log. Don't build anything listed under Later unless asked. If the code and this spec disagree, ask which one is right.
 
@@ -44,8 +44,9 @@ A small wall display in the RV that shows the Victron system status I normally c
 | SmartShunt 500A | Battery monitor, 48V bank |
 | MPPT 100/20 48V "Driver" | Solar charger |
 | MPPT 100/20 48V "Passenger" | Solar charger |
+| 2 x Mopeka Pro LPG sensors | Propane bottles, reach the Cerbo over Bluetooth and appear as `tank` services. Sabrina's are named "Driver Side Tank" and "Passenger Side Tank" (20 lb bottles); Dad's unit also has two (40 lb bottles). |
 
-Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance number, since instances can change.
+Match MPPTs by their `CustomName` (Driver, Passenger), never by device instance number, since instances can change. Tanks too: shown by name, sorted, never by instance.
 
 ## 5. Data sources
 
@@ -110,25 +111,33 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 | AC out voltage, current, frequency | `vebus/<inst>/Ac/Out/L1/V`, `/I`, `/F` |
 | Shore input limit | `vebus/<inst>/Ac/ActiveIn/CurrentLimit` |
 | Quattro state | `vebus/<inst>/State` (map to Off, Inverting, Charging, Passthru, etc.) |
+| Tank level | `tank/<inst>/Level` (0 to 100 %) |
+| Tank propane left | `tank/<inst>/Remaining` (m³); shown in lb = m³ × 264.172 × 4.24, one decimal |
+| Tank capacity | `tank/<inst>/Capacity` (m³, set per tank on the Cerbo) |
+| Tank name | `tank/<inst>/CustomName` |
+| Tank fluid | `tank/<inst>/FluidType` (8 = LPG; only LPG tanks are shown) |
+| Tank sensor status | `tank/<inst>/Status` (0 Ok, 1 Disconnected, 2 Short circuited, 3 Unknown, 4 Configuration error) |
 | Alarms | `vebus/<inst>/Alarms/*`, `battery/<inst>/Alarms/*` (0 off, 1 warning, 2 alarm; the Quattro also has `Alarms/L1/*` copies, merged into one entry). `solarcharger/<inst>/ErrorCode` is a Victron error number instead (0 none), so any non-zero code counts as an alarm. |
+
+**Tank paths checked against the Venus dbus wiki (github.com/victronenergy/venus/wiki/dbus, "Tank levels", 2026-11-25):** Level "0 to 100%", Remaining "m3", Capacity "m3"; FluidType 0 Fuel, 1 Fresh water, 2 Waste water, 3 Live well, 4 Oil, 5 Black water, 6 Gasoline, 7 Diesel, **8 LPG**, 9 LNG, 10 Hydraulic oil, 11 Raw water (kept in sync with NMEA2000); Status 0 Ok, 1 Disconnected, 2 Short circuited, 3 Unknown, 4 Configuration error. `CustomName` isn't listed in the wiki's tank section (it's a general path on Venus services), and the dbus-flashmq README doesn't mention tanks; it only gives the topic form `N/<portal ID>/<service type>/<device instance>/<D-Bus path>`, so `N/<portalId>/tank/<inst>/...`. All six are subscribed with a one-level `+` for the instance (never `#`), 31 paths in all; the boot log's "seen" lines will confirm them on the live system. Not used: tank alarms (`Alarms/Low|High/*`, not supported for every tank type), Mopeka battery voltage and temperature.
 
 ### 5.6 Stale data
 
 * Never show frozen numbers as if they're live
-* **Decision (2026-11-22, for now):** freshness is judged for the whole system, not per group. Data is fresh while the link is up (loading or live) and any message arrived in the last 30s. Otherwise every data screen (Overview, Battery, Solar, AC, Alarms) keeps the last known values but shows them in grey, with an amber marker top right:
+* **Decision (2026-11-22, for now):** freshness is judged for the whole system, not per group. Data is fresh while the link is up (loading or live) and any message arrived in the last 30s. Otherwise every data screen (Overview, Battery, Solar, AC, Tanks, Alarms) keeps the last known values but shows them in grey, with an amber marker top right:
   * `NO CONNECTION`: the link is down or reconnecting
   * `STALE`: connected, but nothing arrived for 30s
   * `NO DATA`: connected and live, but nothing has ever arrived (for example a wrong portal ID)
 * Why not per group, as first planned (grey a group after 30s without an update): the Cerbo only publishes a value when it changes, and the keepalive suppresses republishing (5.4). Steady groups such as shore at 0 W, the Quattro state, or solar at night would go grey while still correct. Battery voltage and current change every second or two, so silence across the whole system means data really stopped. (To confirm in item 5.)
 * Rejected alternative: keep the per-group rule and send a full keepalive (no `suppress-republish`) every 30s so everything is resent. It works, but each one republishes every value the Cerbo has, which in cloud mode goes over the trailer's internet every 30s.
-* Per-group update times are still kept in the data layer (`updatedMs`), in case we revisit this.
+* Per-group update times are still kept in the data layer (`updatedMs`: battery, solar, AC, Quattro, tanks), in case we revisit this. Tanks have their own group, and the Tanks screen and Overview strip grey out with the rest.
 * A device that goes away (empty payload) or a null value shows `--`, not a greyed number.
 * Settings isn't greyed; it shows the connection status itself. Alarms is greyed too, since the list could be out of date.
 
 ### 5.7 Firmware updates (OTA)
 
 * **Decision (2026-11-22):** built now, ahead of Dad's unit (was in Later). Sabrina: "lets do ota updates now".
-* Releases live on GitHub Releases of a **public** repo: `SheMunkee/trailer-display-cyd` (`OTA_REPO` in `include/version.h`). Empty `OTA_REPO` = update checks off. The device never logs in to GitHub.
+* Releases live on GitHub Releases of a **public** repo: `shemunkee/trailer-display-cyd` (`OTA_REPO` in `include/version.h`; GitHub ignores case, and 1.0.0 to 1.0.3 used `SheMunkee`). Empty `OTA_REPO` = update checks off. The device never logs in to GitHub.
 * Each release has `firmware-cyd_ili9341.bin`, `firmware-cyd_st7789.bin`, `manifest.json` and `manifest.sig`. The manifest holds the version plus each file's size and SHA-256; each board fetches the file for its own build (`FW_BUILD`).
 * **Signing:** `manifest.json` is signed (ECDSA P-256, SHA-256) with a private key that lives only on Sabrina's laptop at `%USERPROFILE%\.victron_cyd\ota_signing_key.pem`, never in the project or git. The public key is built into the firmware (`include/ota_pubkey.h`). The device installs nothing unless the manifest signature checks out and the downloaded file's size and SHA-256 match the manifest. Back up the private key: without it, no display can be updated over WiFi again (only by USB with a new key).
 * **No downgrades:** only a version newer than the running one (`1.2.3` numbering) is offered.
@@ -158,13 +167,13 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 
 ### 6.2 Navigation
 
-* Bottom bar, 40px tall, on every main screen: one icon button per screen (Overview, Battery, Solar, AC, Alarms, Settings)
+* Bottom bar, 40px tall, on every main screen: seven icon buttons, in order Overview, Battery, Solar, AC, Tanks, Alarms, Settings (Tanks added 2026-11-25). 3px between buttons as in the mockup, so each is about 40px wide; the active bar is 20px, and the alarm dot sits 5px from the top and 9px from the right.
 * Active screen: card background behind the icon plus a blue bar on top
 * Red dot on the Alarms icon when any alarm or warning is active
 * No swipes. Taps only (resistive touch).
-* Icons are the mockup's line icons, drawn into 20px alpha bitmaps by `tools/make_icons.py` (`include/nav_icons.h`) and colored at runtime (white active, muted otherwise)
+* Icons are the mockup's line icons, drawn into 20px alpha bitmaps by `tools/make_icons.py` (`include/nav_icons.h`) and colored at runtime (white active, muted otherwise). Tanks is a propane bottle with collar (24 viewBox, stroke 2, round caps and joins); at 20px its narrow collar notch fills in, the body and level line stay clear. A 14px copy is drawn for the Overview tank strip.
 * Screens are built once and shown or hidden, so switching and waking are instant. Values refresh every 500 ms.
-* LVGL has a 56 KB heap, the most that fits beside everything else in static RAM (64 KB overflows). The boot log prints how much of it the screens use (`UI: built, LVGL memory N% used`).
+* LVGL has a 64 KB heap (56 KB until 1.0.4; it fits since the draw buffer moved to the heap in 1.0.0, and it gives room for the Tanks screen and strip). The boot log prints how much of it the screens use (`UI: built, LVGL memory N% used`).
 
 ### 6.3 Overview
 
@@ -173,6 +182,7 @@ These paths are my best understanding of Venus OS. **Verify every one against th
 * Right column: AC loads tile on top (watts, Quattro AC out amps below), Quattro state tile below
 * **Quattro tile:** Charging (for Bulk, Absorption, Float, Storage, Equalize), Inverting, Passthru, Off, Fault (red), and so on. Below: the input limit while an AC input is live, otherwise the charge phase while charging, otherwise blank.
 * **Solar tile:** total solar watts, and kWh today added up over all MPPTs
+* **Tank strip** (2026-11-25, as in the Overview mockup): a 26px card along the bottom with the tank icon and one entry per LPG tank (up to two, sorted by name): the first word of its CustomName (Driver, Passenger) and its level as 5 bars. Lit bars = ceil(Level / 20), 0 when empty, unknown or on a sensor problem; lit bars are green, amber at or below 20%, unlit ones divider grey. No percent here. Tapping the strip opens Tanks; a tap that wakes the screen from snooze only wakes it (6.10). With the strip, tiles are 67px tall and the ring moves up to stay centered; with no LPG tank seen (yet), the strip is hidden and the tiles go back to 84px. Names are 10px (mockup 11px), so "Passenger" and its bars fit.
 * **AC input tile:** shows SHORE or GENERATOR, whichever is live, with watts. Generator in orange. When neither is live, show the last one used with "Off · last used" in grey. Save the last used source in NVS so it survives a reboot. Active input Source 1 (Grid) or 3 (Shore) counts as SHORE, with power from `Ac/Grid`; 2 is GENERATOR, with power from `Ac/Genset`. Live shore shows blue with "Connected", generator orange with "Running". Before the first value it shows the saved source with `--`.
 
 ### 6.4 Battery
@@ -257,6 +267,17 @@ All settings saved in NVS.
   * Low SOC doesn't wake or jump; it only turns amber and shows the dot.
 * No sounds in v1
 
+### 6.12 Tanks
+
+Follows the Tanks mockup: one card per LPG tank, side by side.
+
+* Shows tanks whose FluidType is 8 (LPG), up to two, sorted by CustomName (Driver before Passenger). A third LPG tank isn't shown; the log says how many there are. With one tank, only the left card shows. With none: "No LPG tanks found".
+* Card: title is the CustomName in capitals with a trailing "Tank" dropped (DRIVER SIDE, PASSENGER SIDE). A level bar on the left (22px wide, filling from the bottom), then the big percent and three rows: Left (pounds, `19.2 lb`), Type (LPG), Status.
+* Percent is 24px (the mockup's 30px isn't a built-in size, and 36px doesn't fit "100%" beside the bar). Green, amber at or below 20%; the bar follows. Status says OK (green) or Low (amber, at or below 20%).
+* Pounds = Remaining (m³) × 264.172 × 4.24, one decimal. It relies on Capacity being set right on the Cerbo, so 20 lb and 40 lb bottles both work without code changes. No Remaining: `--`.
+* Sensor problem (Status not Ok, or no Level): percent and pounds show `--` with a small amber "sensor" note under it, the bar is empty, and Status names the problem in amber with short words that fit the row: No signal (Disconnected), Shorted (Short circuited), Unknown, Config error. The log gives the full Venus name.
+* No tank alarms (not asked for; Cerbo tank alarms don't work for every tank type).
+
 ## 7. Security and privacy rules
 
 * Read only. Never publish to `W/` topics.
@@ -271,7 +292,7 @@ All settings saved in NVS.
 ## 8. Later (don't build yet)
 
 * Control functions (Quattro mode, input current limit), with confirm dialogs, off by default
-* Tank and temperature screens
+* Temperature screens (tanks were built in 1.0.4, see 6.12)
 * Battery power and charging
 * Wake on pickup (motion sensor)
 * History graphs (VRM API or local)
@@ -294,7 +315,8 @@ All settings saved in NVS.
 - [x] Snooze with logo (still to check on the device)
 - [x] Low SOC and alarm alerts (still to check on the device; alarm paths to verify in item 5)
 - [ ] On device check: nothing cut off, all text readable
-- [x] OTA updates from GitHub releases, signed, with tap to install and rollback (5.7) (still to check: one USB flash to the new partition layout, then a test release)
+- [x] OTA updates from GitHub releases, signed, with tap to install and rollback (5.7) (confirmed on the device: 1.0.1 by tap, 1.0.3 automatically)
+- [x] Tanks: Mopeka LPG data, Tanks screen, 7-icon nav, Overview tank strip (5.5, 6.2, 6.3, 6.12) (still to check on the device: the six tank paths in the "seen" log, names and pounds against the bottles, sensor-problem display, strip tap, nothing cut off, LVGL memory)
 
 ## 10. Change log
 
@@ -329,3 +351,4 @@ All settings saved in NVS.
 | 2026-11-22 | Firmware 1.0.3: snooze logo back to the original colors, cropped (69 KB; about 350 KB free in each firmware slot). The one-color logo showed only a black screen on the device; snooze now logs what it does to help find out why if it recurs. |
 | 2026-11-22 | Added README.md (build, flash, release, Wokwi) and docs/SETUP.md (end user setup guide for a new display). |
 | 2026-11-25 | docs/SETUP.md aligned with the firmware: exact screen and status texts, GX password optional (the display falls back to VRM when it can't read the Cerbo directly, no profile is required), troubleshooting by status line, STALE / NO DATA / NO CONNECTION markers, update check timing. README release steps now say to push before creating the release and to test on a separate test board. No firmware change. |
+| 2026-11-25 | Tanks built (moved from Later; temperature stays in Later), firmware 1.0.4. Data: `tank/+/Level, Remaining, Capacity, CustomName, FluidType, Status` (checked against the Venus dbus wiki: Level %, Remaining and Capacity m³, LPG = 8, Status 0 = Ok), new tanks group with its own update time. Tanks screen from the mockup (6.12), nav now 7 icons with Tanks between AC and Alarms (6.2), Overview tank strip with 5-bar levels that opens Tanks (6.3). Decisions (Sabrina): titles drop a trailing "Tank"; sensor problems show `--`, a "sensor" note and short status words; up to two tanks sorted by name; strip hidden when there are no LPG tanks. LVGL heap 56 to 64 KB. OTA repo spelled `shemunkee/trailer-display-cyd` (GitHub's own spelling). docs/SETUP.md updated (31 paths, Tanks screen, Overview strip). |

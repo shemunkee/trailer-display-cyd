@@ -55,6 +55,11 @@ ICONS = {
     # M9 2v6 M15 2v6 M6 8h12v3a6 6 0 0 1-12 0z M12 17v5
     "ac": [line(9, 2, 9, 8), line(15, 2, 15, 8),
            [(6, 8), (18, 8), (18, 11)] + arc(12, 11, 6, 0, 180, 16) + [(6, 8)], line(12, 17, 12, 22)],
+    # Propane bottle with collar (SPEC 6.12):
+    # M8 8h8a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-7a3 3 0 0 1 3-3z
+    # M8.5 8V4.5h7V8  M10.5 4.5V6.5h3V4.5  M5 14.5h14
+    "tanks": [rrect(5, 8, 14, 13, 3), [(8.5, 8), (8.5, 4.5), (15.5, 4.5), (15.5, 8)],
+              [(10.5, 4.5), (10.5, 6.5), (13.5, 6.5), (13.5, 4.5)], line(5, 14.5, 19, 14.5)],
     # M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9 M10.3 21a1.94 1.94 0 0 0 3.4 0
     "alarms": [arc(12, 8, 6, 180, 360, 16) + cubic((18, 8), (18, 15), (21, 17), (21, 17))[1:] +
                [(3, 17)] + cubic((3, 17), (3, 17), (6, 15), (6, 8))[1:],
@@ -74,18 +79,19 @@ def seg_dist(px, py, ax, ay, bx, by):
     return math.hypot(px - cx, py - cy)
 
 
-def render(polys):
+def render(polys, size=SIZE):
+    scale = size / 24.0
     segs = []
     for p in polys:
         segs += [(p[i][0], p[i][1], p[i + 1][0], p[i + 1][1]) for i in range(len(p) - 1)]
     px = []
-    for y in range(SIZE):
-        for x in range(SIZE):
+    for y in range(size):
+        for x in range(size):
             hits = 0
             for sy in range(SS):
                 for sx in range(SS):
-                    ux = (x + (sx + 0.5) / SS) / SCALE
-                    uy = (y + (sy + 0.5) / SS) / SCALE
+                    ux = (x + (sx + 0.5) / SS) / scale
+                    uy = (y + (sy + 0.5) / SS) / scale
                     if min(seg_dist(ux, uy, *s) for s in segs) <= HALF_W:
                         hits += 1
             px.append(round(255 * hits / (SS * SS)))
@@ -102,3 +108,12 @@ for name, polys in ICONS.items():
     for r in range(SIZE):
         print("  " + ",".join(f"{v:3d}" for v in px[r * SIZE:(r + 1) * SIZE]) + ",")
     print("};\n")
+
+# The tank icon again at 14x14 for the Overview tank strip (SPEC 6.3, as in the mockup)
+STRIP = 14
+print(f"#define STRIP_ICON_SIZE {STRIP}\n")
+px = render(ICONS["tanks"], STRIP)
+print(f"static const uint8_t strip_icon_tanks[{STRIP * STRIP}] = {{")
+for r in range(STRIP):
+    print("  " + ",".join(f"{v:3d}" for v in px[r * STRIP:(r + 1) * STRIP]) + ",")
+print("};")

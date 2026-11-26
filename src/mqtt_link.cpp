@@ -51,6 +51,13 @@ static const char* const PATHS[] = {
     "vebus/+/Alarms/#",
     "battery/+/Alarms/#",
     "solarcharger/+/ErrorCode",
+    // Tanks (SPEC 5.5): Mopeka LPG sensors; instance not known ahead, one-level wildcard only
+    "tank/+/Level",
+    "tank/+/Remaining",
+    "tank/+/Capacity",
+    "tank/+/CustomName",
+    "tank/+/FluidType",
+    "tank/+/Status",
 };
 static constexpr int PATH_COUNT = sizeof(PATHS) / sizeof(PATHS[0]);
 

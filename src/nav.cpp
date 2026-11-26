@@ -14,6 +14,7 @@
 #include "settings_screen.h"
 #include "snooze.h"
 #include "solar_screen.h"
+#include "tanks_screen.h"
 #include "theme.h"
 #include "ui.h"
 #include "update_ui.h"
@@ -41,7 +42,7 @@ static Page current = Page::Overview;
 static lv_timer_t* updateTimer;
 
 static const uint8_t* const ICON_DATA[PAGE_COUNT] = {
-    nav_icon_home, nav_icon_battery, nav_icon_solar, nav_icon_ac, nav_icon_alarms, nav_icon_settings,
+    nav_icon_home, nav_icon_battery, nav_icon_solar, nav_icon_ac, nav_icon_tanks, nav_icon_alarms, nav_icon_settings,
 };
 static uint32_t alarmSerialSeen = 0;  // newest device alarm we've already jumped to
 
@@ -98,7 +99,7 @@ static void buildBar(lv_obj_t* scr) {
   lv_obj_set_style_border_color(bar, lv_color_hex(DIVIDER), 0);
   lv_obj_set_style_pad_hor(bar, PAD, 0);
   lv_obj_set_style_pad_ver(bar, 4, 0);
-  lv_obj_set_style_pad_column(bar, 4, 0);
+  lv_obj_set_style_pad_column(bar, 3, 0);  // as in the mockup; seven buttons of about 40px
   lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
@@ -130,7 +131,7 @@ static void buildBar(lv_obj_t* scr) {
     b.bar = lv_obj_create(b.btn);
     lv_obj_remove_style_all(b.bar);
     lv_obj_remove_flag(b.bar, LV_OBJ_FLAG_CLICKABLE);  // taps go to the button
-    lv_obj_set_size(b.bar, 22, 2);
+    lv_obj_set_size(b.bar, 20, 2);  // mockup: 10px in from each side of a ~40px button
     lv_obj_set_style_radius(b.bar, 1, 0);
     lv_obj_set_style_bg_opa(b.bar, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(b.bar, lv_color_hex(AC), 0);
@@ -144,7 +145,7 @@ static void buildBar(lv_obj_t* scr) {
   lv_obj_set_style_radius(alarmDot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_opa(alarmDot, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(alarmDot, lv_color_hex(ALARM), 0);
-  lv_obj_align(alarmDot, LV_ALIGN_TOP_RIGHT, -13, 5);
+  lv_obj_align(alarmDot, LV_ALIGN_TOP_RIGHT, -9, 5);  // mockup: top 5, right 9
   lv_obj_add_flag(alarmDot, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -171,6 +172,7 @@ static void onUpdate(lv_timer_t*) {
   battery_screen_update(d);
   solar_screen_update(d);
   ac_screen_update(d);
+  tanks_screen_update(d);
   int active = alarms_screen_update(d);
   ui_set_dim(false);
   settings_screen_update();
@@ -202,6 +204,7 @@ void nav_begin() {
   battery_screen_create(pages[(int)Page::Battery]);
   solar_screen_create(pages[(int)Page::Solar]);
   ac_screen_create(pages[(int)Page::Ac]);
+  tanks_screen_create(pages[(int)Page::Tanks]);
   settings_screen_create(pages[(int)Page::Settings]);
   alarms_screen_create(pages[(int)Page::Alarms]);
 

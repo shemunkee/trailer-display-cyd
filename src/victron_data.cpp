@@ -15,7 +15,7 @@ static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;  // short copies only
 struct Value {
   bool present = false;  // false: null, empty or unparsable
   float num = NAN;
-  char str[24] = "";
+  char str[32] = "";  // CustomName; tank names like "Passenger Side Tank" need the room
   bool isString = false;
 };
 
@@ -74,6 +74,18 @@ static MpptData* mpptSlot(int instance) {
       return &m;
     }
   return nullptr;  // more chargers than slots; ignore the extra ones
+}
+
+static TankData* tankSlot(int instance) {
+  for (auto& t : data.tanks)
+    if (t.instance == instance) return &t;
+  for (auto& t : data.tanks)
+    if (t.instance < 0) {
+      t = TankData();
+      t.instance = instance;
+      return &t;
+    }
+  return nullptr;  // more tanks than slots; ignore the extra ones
 }
 
 static int levelOf(const Value& v) { return v.present && !v.isString && !isnan(v.num) ? (int)v.num : 0; }
@@ -164,6 +176,18 @@ void victron_data_on_message(const char* path, const uint8_t* payload, unsigned 
       }
       else group = -1;
     }
+  } else if (!strcmp(service, "tank")) {  // SPEC 5.5: Mopeka LPG sensors
+    TankData* t = tankSlot(inst);
+    if (t) {
+      group = GROUP_TANKS;
+      if (!strcmp(rest, "Level")) setNum(t->level, v);
+      else if (!strcmp(rest, "Remaining")) setNum(t->remainingM3, v);
+      else if (!strcmp(rest, "Capacity")) setNum(t->capacityM3, v);
+      else if (!strcmp(rest, "CustomName")) strlcpy(t->name, v.isString ? v.str : "", sizeof(t->name));
+      else if (!strcmp(rest, "FluidType")) setCode(t->fluidType, v);
+      else if (!strcmp(rest, "Status")) setCode(t->status, v);
+      else group = -1;
+    }
   } else if (!strcmp(service, "vebus")) {
     if (!strcmp(rest, "Ac/ActiveIn/L1/V")) setNum(data.acInVolts, v), group = GROUP_AC;
     else if (!strcmp(rest, "Ac/Out/L1/V")) setNum(data.acOutVolts, v), group = GROUP_AC;
@@ -238,6 +262,56 @@ const MpptData* mppt_by_name(const VictronData& d, const char* name) {
     if (mppt_name_matches(&m, name)) return &m;
   return nullptr;
 }
+
+// ---------- tanks (SPEC 6.12) ----------
+
+int lpg_tanks(const VictronData& d, const TankData** out, int max, int* total) {
+  int n = 0, all = 0;
+  for (const TankData& t : d.tanks) {
+    if (t.instance < 0 || t.fluidType != FLUID_LPG) continue;
+    all++;
+    // Insert sorted by name; past `max` the last-sorted one drops off
+    int i = n < max ? n++ : max;
+    while (i > 0 && strcasecmp(t.name, out[i - 1]->name) < 0) {
+      if (i < max) out[i] = out[i - 1];
+      i--;
+    }
+    if (i < max) out[i] = &t;
+  }
+  if (total) *total = all;
+  return n;
+}
+
+// Short words for the Tanks card's narrow Status row (Sabrina's choice, 2026-11-25)
+const char* tank_status_name(int s) {
+  switch (s) {
+    case 0: return "OK";
+    case 1: return "No signal";
+    case 2: return "Shorted";
+    case 3: return "Unknown";
+    case 4: return "Config error";
+    default: return "--";
+  }
+}
+
+// The Venus names (dbus wiki), for the log
+const char* tank_status_full(int s) {
+  switch (s) {
+    case 0: return "Ok";
+    case 1: return "Disconnected";
+    case 2: return "Short circuited";
+    case 3: return "Unknown";
+    case 4: return "Configuration error";
+    default: return "no status";
+  }
+}
+
+// lb = m3 x 264.172 US gal/m3 x 4.24 lb/gal of propane. Uses Remaining, which the
+// Cerbo works out from Level and the Capacity set for the tank, so 20 lb and
+// 40 lb bottles both come out right without code changes.
+float tank_pounds(const TankData& t) { return isnan(t.remainingM3) ? NAN : t.remainingM3 * 264.172f * 4.24f; }
+
+bool tank_reading_ok(const TankData& t) { return t.status == 0 && !isnan(t.level); }
 
 // ---------- alarm text ----------
 

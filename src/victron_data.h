@@ -9,10 +9,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-enum DataGroup : uint8_t { GROUP_BATTERY, GROUP_SOLAR, GROUP_AC, GROUP_QUATTRO, GROUP_COUNT };
+enum DataGroup : uint8_t { GROUP_BATTERY, GROUP_SOLAR, GROUP_AC, GROUP_QUATTRO, GROUP_TANKS, GROUP_COUNT };
 
 static constexpr int MAX_MPPTS = 4;
 static constexpr int MAX_ALARMS = 12;
+static constexpr int MAX_TANKS = 4;   // tank services kept; screens show up to 2 LPG tanks (SPEC 6.12)
+static constexpr int FLUID_LPG = 8;   // tank FluidType 8 = LPG (Venus dbus wiki)
 
 enum class AlarmDevice : uint8_t { Quattro, Battery, Mppt };
 
@@ -39,6 +41,17 @@ struct MpptData {
   int state = -1, errorCode = -1;
 };
 
+// One tank service (SPEC 5.5): tank/<inst>/Level, Remaining, Capacity, CustomName,
+// FluidType, Status. Mopeka Pro LPG sensors reach the Cerbo over Bluetooth.
+struct TankData {
+  int instance = -1;    // -1 = slot unused
+  char name[32] = "";   // CustomName, e.g. "Driver Side Tank"
+  float level = NAN;    // percent, 0-100
+  float remainingM3 = NAN, capacityM3 = NAN;
+  int fluidType = -1;   // FLUID_LPG = 8
+  int status = -1;      // 0 OK, 1 Disconnected, 2 Short circuited, 3 Unknown, 4 Configuration error
+};
+
 struct VictronData {
   // Battery
   float soc = NAN, battVolts = NAN, battAmps = NAN, battWatts = NAN;
@@ -54,6 +67,8 @@ struct VictronData {
   float acOutVolts = NAN, acOutAmps = NAN, acOutHz = NAN, inputLimitAmps = NAN;
   // Quattro
   int vebusState = -1;
+  // Tanks
+  TankData tanks[MAX_TANKS];
 
   uint32_t updatedMs[GROUP_COUNT] = {};  // millis() of the last value per group, 0 = never
   AlarmEntry alarms[MAX_ALARMS];
@@ -76,6 +91,14 @@ const char* mppt_state_name(int state);   // Off, Bulk, Absorption, Float, ...
 // The MPPT whose CustomName contains `name` (case-insensitive), or nullptr
 const MpptData* mppt_by_name(const VictronData& d, const char* name);
 bool mppt_name_matches(const MpptData* m, const char* name);
+
+// Up to `max` LPG tanks, sorted by CustomName (Driver before Passenger). Returns how
+// many were put in `out`; `total` (optional) gets how many LPG tanks there are in all.
+int lpg_tanks(const VictronData& d, const TankData** out, int max, int* total = nullptr);
+const char* tank_status_name(int status);  // short, for the card: OK, No signal, Shorted, Unknown, Config error
+const char* tank_status_full(int status);  // the Venus name, for the log: Disconnected, Short circuited, ...
+float tank_pounds(const TankData& t);      // propane left in lb from Remaining (m3), NAN if unknown
+bool tank_reading_ok(const TankData& t);   // Status OK and Level present
 
 // Readable text for an alarm: message ("Overload") and device ("Quattro", or the MPPT's name)
 void alarm_text(const VictronData& d, const AlarmEntry& a, char* msg, size_t msgLen, char* dev, size_t devLen);

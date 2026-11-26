@@ -73,7 +73,7 @@ On the display, tap the **Settings** icon (far right of the bottom bar) and look
 | **Local** or **Cloud** in amber | Still connecting, or that connection failed. Read the small line (see Troubleshooting). |
 | **No connection**, in grey | Not connected to anything yet. Read the small line. |
 
-When it's working, the small line says **Live, 25/25 paths** (or a number close to 25). Just after a restart it says **Loading, ...** for a few seconds.
+When it's working, the small line says **Live, 31/31 paths** (or a number close to 31; a system without propane sensors shows about 25). Just after a restart it says **Loading, ...** for a few seconds.
 
 If it says **Cloud** while you're at the trailer, the display couldn't read the Cerbo directly and is using the internet instead. That's fine to leave, but Troubleshooting has tips for getting it to Local.
 
@@ -85,10 +85,11 @@ Tap the icons along the bottom to switch screens:
 
 | Icon | Screen | Shows |
 |---|---|---|
-| House | Overview | Shore or generator power, solar (and kWh today), battery % with power and volts, AC loads, Quattro state |
+| House | Overview | Shore or generator power, solar (and kWh today), battery % with power and volts, AC loads, Quattro state; along the bottom, each propane tank as 5 bars (tap it for Tanks) |
 | Battery | Battery | Charge %, Voltage, Current, Power, Time to go, Consumed |
 | Sun | Solar | Total solar, and for each charger: power, PV voltage, state and today's kWh |
 | Plug | AC | AC input (Shore or Generator): voltage, power, current limit; AC output: voltage, current, frequency; Quattro state |
+| Propane bottle | Tanks | Each propane tank (Mopeka sensor): level %, pounds left, status. Amber at 20% or less. "sensor" with a status like "No signal" means the reading isn't coming through. |
 | Bell | Alarms | Active alarms and warnings, two at a time ("tap for more" shows the rest). A red dot on the bell means something needs a look. |
 | Sliders | Settings | Low SOC warning, Snooze time, Brightness, USB side, Data source |
 

@@ -10,7 +10,7 @@
 #define LV_USE_STDLIB_MALLOC  LV_STDLIB_BUILTIN
 #define LV_USE_STDLIB_STRING  LV_STDLIB_CLIB
 #define LV_USE_STDLIB_SPRINTF LV_STDLIB_CLIB
-#define LV_MEM_SIZE (56U * 1024U)  // five screens built at boot; the boot log prints how much is used. 64 KB overflows static DRAM.
+#define LV_MEM_SIZE (64U * 1024U)  // all screens built at boot (boot log prints the use). Fits since the draw buffer moved to the heap.
 
 #define LV_USE_OS LV_OS_NONE
 #define LV_DEF_REFR_PERIOD 33

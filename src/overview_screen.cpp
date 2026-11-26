@@ -3,7 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "nav.h"
+#include "nav_icons.h"
 #include "settings.h"
+#include "tanks_screen.h"
 #include "theme.h"
 #include "ui.h"
 
@@ -11,25 +14,35 @@ using namespace theme;
 
 // Content area is 296 x 176 inside the page padding
 static constexpr int COL_W = 96;
-static constexpr int TILE_H = 84;  // (176 - 8) / 2
+static constexpr int CONTENT_H = 176;
+static constexpr int STRIP_H = 26;  // tank strip at the bottom (mockup)
 static constexpr int RING = 88;
 static constexpr int RING_X = COL_W + GAP;
-static constexpr int RING_Y = (TILE_H * 2 + GAP - RING) / 2;
 static constexpr int RIGHT_X = RING_X + RING + GAP;
+static constexpr int SEGMENTS = 5;  // tank level as 5 bars, 20% each
 
 struct Tile {
-  lv_obj_t *title, *value, *sub;
+  lv_obj_t *card, *title, *value, *sub;
+};
+
+struct StripTank {
+  lv_obj_t *box, *name, *seg[SEGMENTS];
 };
 
 static Tile acIn, solar, loads, quattro;
 static lv_obj_t *ring, *socLabel, *powerLabel, *voltsLabel;
+static lv_obj_t* strip;  // tank strip, shown while there are LPG tanks (SPEC 6.3)
+static StripTank stripTanks[TANKS_SHOWN];
+static lv_image_dsc_t stripIconDsc;
+static int layoutWithStrip = -1;  // which layout is applied: 0 without, 1 with the strip
 
 static Tile makeTile(lv_obj_t* page, int x, int y, const lv_font_t* valueFont) {
-  lv_obj_t* c = ui_card(page, x, y, COL_W, TILE_H);
+  lv_obj_t* c = ui_card(page, x, y, COL_W, (CONTENT_H - GAP) / 2);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_row(c, 2, 0);
   Tile t;
+  t.card = c;
   t.title = ui_text(c, "", &lv_font_montserrat_10, MUTED);
   lv_obj_set_style_text_letter_space(t.title, 1, 0);
   t.value = ui_text(c, "--", valueFont, TEXT);
@@ -43,11 +56,84 @@ static Tile makeTile(lv_obj_t* page, int x, int y, const lv_font_t* valueFont) {
   return t;
 }
 
+// Tiles and ring fill the height left above the strip, or all of it without tanks
+static void layout(bool withStrip) {
+  if ((int)withStrip == layoutWithStrip) return;
+  layoutWithStrip = withStrip;
+  int h = withStrip ? CONTENT_H - STRIP_H - GAP : CONTENT_H;  // 142 or 176
+  int tileH = (h - GAP) / 2;                                   // 67 or 84
+  lv_obj_t* tiles[] = {acIn.card, solar.card, loads.card, quattro.card};
+  for (int i = 0; i < 4; i++) {
+    lv_obj_set_size(tiles[i], COL_W, tileH);
+    lv_obj_set_pos(tiles[i], i < 2 ? 0 : RIGHT_X, i % 2 ? tileH + GAP : 0);
+  }
+  lv_obj_set_pos(ring, RING_X, (tileH * 2 + GAP - RING) / 2);
+  if (withStrip) lv_obj_remove_flag(strip, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_add_flag(strip, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void onStrip(lv_event_t*) { nav_show(Page::Tanks); }
+
+static void plainChild(lv_obj_t* o) {
+  lv_obj_remove_style_all(o);
+  lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);  // taps go to the strip
+  lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+// Mockup: card 26px tall, tank icon, then each tank's first name word and 5 bars
+static void makeStrip(lv_obj_t* page) {
+  strip = ui_card(page, 0, CONTENT_H - STRIP_H, 296, STRIP_H);
+  lv_obj_set_style_pad_ver(strip, 0, 0);
+  lv_obj_set_style_pad_hor(strip, 10, 0);
+  lv_obj_set_flex_flow(strip, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(strip, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(strip, 14, 0);
+  lv_obj_add_flag(strip, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_ext_click_area(strip, 4);
+  lv_obj_add_event_cb(strip, onStrip, LV_EVENT_CLICKED, nullptr);
+
+  stripIconDsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+  stripIconDsc.header.cf = LV_COLOR_FORMAT_A8;
+  stripIconDsc.header.w = STRIP_ICON_SIZE;
+  stripIconDsc.header.h = STRIP_ICON_SIZE;
+  stripIconDsc.header.stride = STRIP_ICON_SIZE;
+  stripIconDsc.data_size = sizeof(strip_icon_tanks);
+  stripIconDsc.data = strip_icon_tanks;
+  lv_obj_t* icon = lv_image_create(strip);
+  lv_image_set_src(icon, &stripIconDsc);
+  lv_obj_set_style_image_recolor(icon, lv_color_hex(MUTED), 0);
+  lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
+
+  for (StripTank& t : stripTanks) {
+    t.box = lv_obj_create(strip);
+    plainChild(t.box);
+    lv_obj_set_size(t.box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(t.box, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(t.box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(t.box, 6, 0);
+    // Mockup 11px; 10px is the label size on this scale, and "Passenger" plus its bars fits
+    t.name = ui_text(t.box, "", &lv_font_montserrat_10, TEXT);
+    lv_obj_t* segs = lv_obj_create(t.box);
+    plainChild(segs);
+    lv_obj_set_size(segs, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(segs, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(segs, 2, 0);
+    for (lv_obj_t*& sg : t.seg) {
+      sg = lv_obj_create(segs);
+      plainChild(sg);
+      lv_obj_set_size(sg, 11, 9);
+      lv_obj_set_style_radius(sg, 2, 0);
+      lv_obj_set_style_bg_opa(sg, LV_OPA_COVER, 0);
+      lv_obj_set_style_bg_color(sg, lv_color_hex(DIVIDER), 0);
+    }
+  }
+}
+
 void overview_screen_create(lv_obj_t* page) {
   acIn = makeTile(page, 0, 0, &lv_font_montserrat_18);
-  solar = makeTile(page, 0, TILE_H + GAP, &lv_font_montserrat_18);
+  solar = makeTile(page, 0, 0, &lv_font_montserrat_18);
   loads = makeTile(page, RIGHT_X, 0, &lv_font_montserrat_18);
-  quattro = makeTile(page, RIGHT_X, TILE_H + GAP, &lv_font_montserrat_14);
+  quattro = makeTile(page, RIGHT_X, 0, &lv_font_montserrat_14);
   lv_label_set_text(solar.title, "SOLAR");
   lv_label_set_text(loads.title, "AC LOADS");
   lv_label_set_text(quattro.title, "QUATTRO");
@@ -56,7 +142,6 @@ void overview_screen_create(lv_obj_t* page) {
 
   // SOC ring: a full circle that fills to the SOC
   ring = lv_arc_create(page);
-  lv_obj_set_pos(ring, RING_X, RING_Y);
   lv_obj_set_size(ring, RING, RING);
   lv_arc_set_rotation(ring, 270);
   lv_arc_set_bg_angles(ring, 0, 360);
@@ -76,6 +161,9 @@ void overview_screen_create(lv_obj_t* page) {
   lv_obj_align(powerLabel, LV_ALIGN_CENTER, 0, 8);
   voltsLabel = ui_text(ring, "", &lv_font_montserrat_10, MUTED);
   lv_obj_align(voltsLabel, LV_ALIGN_CENTER, 0, 20);
+
+  makeStrip(page);
+  layout(false);  // until a tank is seen
 }
 
 static void updateAcInput(const VictronData& d) {
@@ -172,7 +260,39 @@ static void updateQuattro(const VictronData& d) {
   }
 }
 
+// Tank strip (SPEC 6.3): first word of each name, level as 5 bars
+// (lit = ceil(level / 20), 0 when empty or unknown), amber at or below 20%
+static void updateTanks(const VictronData& d) {
+  const TankData* shown[TANKS_SHOWN];
+  int n = lpg_tanks(d, shown, TANKS_SHOWN);
+  layout(n > 0);
+  for (int i = 0; i < TANKS_SHOWN; i++) {
+    StripTank& st = stripTanks[i];
+    if (i >= n) {
+      lv_obj_add_flag(st.box, LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    lv_obj_remove_flag(st.box, LV_OBJ_FLAG_HIDDEN);
+    const TankData& t = *shown[i];
+    char word[sizeof(t.name)];
+    strlcpy(word, t.name[0] ? t.name : "Tank", sizeof(word));
+    char* sp = strchr(word, ' ');
+    if (sp) *sp = 0;
+    ui_set_text(st.name, word);
+    ui_set_color(st.name, TEXT);
+    bool ok = tank_reading_ok(t);
+    int lit = ok && t.level > 0 ? (int)ceilf(t.level / 20.0f) : 0;
+    if (lit > SEGMENTS) lit = SEGMENTS;
+    uint32_t on = ok && t.level <= TANK_LOW_PCT ? WARN : CHARGE;
+    for (int k = 0; k < SEGMENTS; k++) {
+      lv_color_t c = lv_color_hex(k < lit ? ui_color(on) : DIVIDER);
+      if (!lv_color_eq(lv_obj_get_style_bg_color(st.seg[k], 0), c)) lv_obj_set_style_bg_color(st.seg[k], c, 0);
+    }
+  }
+}
+
 void overview_screen_update(const VictronData& d) {
+  updateTanks(d);
   updateAcInput(d);
   updateRing(d);
   updateSolar(d);
