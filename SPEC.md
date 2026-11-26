@@ -6,7 +6,7 @@
 
 > **For Claude Code:** This file is the source of truth for what the device does. Read it before every task. When a decision changes or a feature ships, update this file in the same change: edit the relevant section, tick the checklist, and add a line to the Change log. Don't build anything listed under Later unless asked. If the code and this spec disagree, ask which one is right.
 
-Screen mockups: https://claude.ai/artifact/1YQthzTCZrTkbtBv76tEti
+Screen mockups: `design/screens.html` (open in a browser; real 320 x 240 size). Sources in `design/src`: edit the generators, then run `python design/src/build_screens.py`. Older canvas copy: https://claude.ai/artifact/1YQthzTCZrTkbtBv76tEti
 
 ---
 
@@ -352,3 +352,4 @@ Follows the Tanks mockup: one card per LPG tank, side by side.
 | 2026-11-22 | Added README.md (build, flash, release, Wokwi) and docs/SETUP.md (end user setup guide for a new display). |
 | 2026-11-25 | docs/SETUP.md aligned with the firmware: exact screen and status texts, GX password optional (the display falls back to VRM when it can't read the Cerbo directly, no profile is required), troubleshooting by status line, STALE / NO DATA / NO CONNECTION markers, update check timing. README release steps now say to push before creating the release and to test on a separate test board. No firmware change. |
 | 2026-11-25 | Tanks built (moved from Later; temperature stays in Later), firmware 1.0.4. Data: `tank/+/Level, Remaining, Capacity, CustomName, FluidType, Status` (checked against the Venus dbus wiki: Level %, Remaining and Capacity m³, LPG = 8, Status 0 = Ok), new tanks group with its own update time. Tanks screen from the mockup (6.12), nav now 7 icons with Tanks between AC and Alarms (6.2), Overview tank strip with 5-bar levels that opens Tanks (6.3). Decisions (Sabrina): titles drop a trailing "Tank"; sensor problems show `--`, a "sensor" note and short status words; up to two tanks sorted by name; strip hidden when there are no LPG tanks. LVGL heap 56 to 64 KB. OTA repo spelled `shemunkee/trailer-display-cyd` (GitHub's own spelling). docs/SETUP.md updated (31 paths, Tanks screen, Overview strip). |
+| 2026-11-26 | Screen mockups moved into the repo as `design/screens.html` with sources in `design/src`, so other projects can reference them. Setup mockup now shows `Victron_CYD_<name>` and "Setup: <name>". No firmware change. |
